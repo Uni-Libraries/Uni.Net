@@ -617,7 +617,7 @@ bool uni_net_http_server_init(uni_net_http_server_context_t* ctx ) {
 }
 
 
-bool UNI_NET_net_http_is_inited(const uni_net_http_server_context_t* ctx ){
+bool uni_net_http_server_is_inited(const uni_net_http_server_context_t* ctx ){
     return ctx != nullptr && ctx->state.initialized != false;
 }
 
