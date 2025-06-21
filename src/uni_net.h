@@ -4,6 +4,7 @@
 extern "C" {
 #endif
 
+#include "uni_net_ftp_client.h"
 #include "uni_net_http_server.h"
 
 #if defined(__cplusplus)
