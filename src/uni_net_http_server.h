@@ -15,6 +15,8 @@
 // Uni.Net
 #include "uni_net_http_common.h"
 
+#include "uni_common_array.h"
+
 
 
 //
@@ -38,7 +40,8 @@ typedef struct {
     /**
      * Pointer to current file description
      */
-    uni_net_http_file_t* file_handle;
+    const uni_net_http_file_t* file;
+    const uni_net_http_handler_t* handler;
 
     /**
      * Current file offset
@@ -107,7 +110,15 @@ typedef struct
 
 
 typedef struct {
-    uni_net_http_file_t *files;
+    /**
+     * An array of responce handlers
+     */
+    uni_common_array_t handlers;
+
+    /**
+     * An array of registered files
+     */
+    uni_common_array_t files;
 
     /**
      * Number of max clients
@@ -142,3 +153,9 @@ bool uni_net_http_server_is_inited(const uni_net_http_server_context_t* ctx );
 bool uni_net_http_server_signal(uni_net_http_server_context_t* ctx);
 
 bool uni_net_http_server_signal_from_isr(uni_net_http_server_context_t* ctx, BaseType_t* higherPriorityTaskWoken);
+
+bool uni_net_http_server_register_file(uni_net_http_server_context_t* ctx, const uni_net_http_file_t* file);
+bool uni_net_http_server_register_file_ex(uni_net_http_server_context_t* ctx, const char* path, const uint8_t* data, uint32_t size);
+
+bool uni_net_http_server_register_handler(uni_net_http_server_context_t* ctx, const uni_net_http_handler_t* handler);
+bool uni_net_http_server_register_handler_ex(uni_net_http_server_context_t* ctx, uni_net_http_command_type_e command, const char* path, uni_net_http_handler_fn function, void* userdata);

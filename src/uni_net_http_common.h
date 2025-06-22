@@ -43,7 +43,7 @@ typedef enum {
 // Typedefs
 //
 
-typedef size_t (*uni_net_http_file_formatter_fn)(uint8_t* buf_out, size_t buf_out_size, const uint8_t* buf_in, size_t buf_in_len);
+typedef size_t (*uni_net_http_handler_fn)(void* userdata, uint8_t* buf_out, size_t buf_out_size, const uint8_t* buf_in, size_t buf_in_len);
 
 
 
@@ -52,12 +52,17 @@ typedef size_t (*uni_net_http_file_formatter_fn)(uint8_t* buf_out, size_t buf_ou
 //
 
 typedef struct {
-    const char* file_name;
-    const uint8_t* file_data;
-    const uint32_t file_size;
-    uni_net_http_command_type_e handler_type;
-    uni_net_http_file_formatter_fn formatter;
+    const char* path;
+    const uint8_t* data;
+    const uint32_t size;
 } uni_net_http_file_t;
+
+typedef struct {
+    const char* path;
+    uni_net_http_command_type_e command;
+    uni_net_http_handler_fn function;
+    void* userdata;
+} uni_net_http_handler_t;
 
 typedef struct
 {
