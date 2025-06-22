@@ -5,6 +5,7 @@
 // stdlib
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // FreeRTOS
 #include <FreeRTOS_IP.h>
@@ -68,8 +69,7 @@ static const char *_uni_net_ftp_client_startup_cmds[] = {
     "PWD\r\n",
 };
 
-static size_t _uni_net_ftp_client_startup_cmds_cnt = sizeof(_uni_net_ftp_client_startup_cmds) / sizeof(_uni_net_ftp_client_startup_cmds
-                                                    [0]);
+static size_t _uni_net_ftp_client_startup_cmds_cnt = sizeof(_uni_net_ftp_client_startup_cmds) / sizeof(_uni_net_ftp_client_startup_cmds[0]);
 
 
 //
@@ -78,7 +78,7 @@ static size_t _uni_net_ftp_client_startup_cmds_cnt = sizeof(_uni_net_ftp_client_
 
 static bool _uni_net_ftp_client_send_cmd(uni_net_ftp_client_context_t *ctx, const char *cmd) {
     bool result = false;
-    if (cmd != nullptr) {
+    if (cmd != NULL) {
         int32_t len = strlen(cmd);
         result = FreeRTOS_send(ctx->state.socket_cmd, cmd, len, 0) == len;
     }
@@ -112,15 +112,15 @@ static bool _uni_net_ftp_client_send_password(uni_net_ftp_client_context_t *ctx)
 }
 
 static void _uni_net_ftp_client_set_to_idle(uni_net_ftp_client_context_t *ctx) {
-    if (ctx->state.socket_data != nullptr) {
+    if (ctx->state.socket_data != NULL) {
         UNI_NET_FTP_CLIENT_DBG_0("_uni_net_ftp_client_set_to_idle() -> close data socket");
         FreeRTOS_closesocket(ctx->state.socket_data);
-        ctx->state.socket_data = nullptr;
+        ctx->state.socket_data = NULL;
     }
 
     ctx->state.task.type = UNI_NET_FTP_CLIENT_TASK_TYPE_IDLE;
     ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_FINISHED;
-    ctx->state.task.cookie_file = nullptr;
+    ctx->state.task.cookie_file = NULL;
     ctx->state.task.progress = 0;
     ctx->state.task.progress_total = 0;
     ctx->state.task.name[0] = '\0';
@@ -135,7 +135,7 @@ static bool _uni_net_ftp_client_connect_socket(uni_net_ftp_client_context_t *ctx
     bool result = false;
 
     // create socket set
-    if (ctx->state.socket_set == nullptr) {
+    if (ctx->state.socket_set == NULL) {
         ctx->state.socket_set = FreeRTOS_CreateSocketSet();
     }
 
@@ -155,10 +155,11 @@ static bool _uni_net_ftp_client_connect_socket(uni_net_ftp_client_context_t *ctx
         }
 
         // create address structure
-        struct freertos_sockaddr sockaddr = {0};
-        sockaddr.sin_family = FREERTOS_AF_INET;
-        sockaddr.sin_address.ulIP_IPv4 = ctx->config.server_addr;
-        sockaddr.sin_port = uni_common_bytes_swap16(port);
+        struct freertos_sockaddr sockaddr = {
+            .sin_family = FREERTOS_AF_INET,
+            .sin_address = { .ulIP_IPv4 = ctx->config.server_addr },
+            .sin_port = uni_common_bytes_swap16(port)
+        };
 
         // set timeout RX
         if (ctx->config.timeout_rx > 0U) {
@@ -189,43 +190,53 @@ static bool _uni_net_ftp_client_connect_socket(uni_net_ftp_client_context_t *ctx
 
 
 static void _uni_net_ftp_client_disconnect(uni_net_ftp_client_context_t *ctx, bool call_callback) {
-    if (ctx->state.socket_data != nullptr) {
+    if (ctx->state.socket_data != NULL) {
         FreeRTOS_closesocket(ctx->state.socket_data);
-        ctx->state.socket_data = nullptr;
+        ctx->state.socket_data = NULL;
     }
 
-    if (ctx->state.socket_cmd != nullptr) {
+    if (ctx->state.socket_cmd != NULL) {
         FreeRTOS_closesocket(ctx->state.socket_cmd);
-        ctx->state.socket_cmd = nullptr;
+        ctx->state.socket_cmd = NULL;
     }
 
-    if (ctx->state.socket_set != nullptr) {
+    if (ctx->state.socket_set != NULL) {
         FreeRTOS_DeleteSocketSet(ctx->state.socket_set);
-        ctx->state.socket_set = nullptr;
+        ctx->state.socket_set = NULL;
     }
 
     if(call_callback && ctx->state.callback) {
-        ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_DISCONNECT, nullptr, 0);
+        ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_DISCONNECT, NULL, 0);
     }
 
     ctx->state.task.type = UNI_NET_FTP_CLIENT_TASK_TYPE_TERMINATION;
 }
 
-
 //
 // Functions/Handlers
 //
+static void _uni_net_ftp_client_handler_150(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_20x(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_220(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_226(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_227(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_230(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_257(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_331(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_error(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_530(uni_net_ftp_client_context_t *ctx, const char *str);
+static void _uni_net_ftp_client_handler_550(uni_net_ftp_client_context_t *ctx, const char *str);
 
 /**
  * 150: Opening Data Connection for File
  * @param ctx
  */
 static void _uni_net_ftp_client_handler_150(uni_net_ftp_client_context_t *ctx, const char *str) {
-    if (str != nullptr) {
+    if (str != NULL) {
         //determine file size
         int data = 0;
         str = strchr(str, '(');
-        if (str != nullptr) {
+        if (str != NULL) {
             str++;
             sscanf(str, "%d", &data);
             ctx->state.task.progress_total = data;
@@ -243,7 +254,8 @@ static void _uni_net_ftp_client_handler_150(uni_net_ftp_client_context_t *ctx, c
  * 200: OK
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_20x(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_20x(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_FINISHED;
 }
 
@@ -252,7 +264,8 @@ static void _uni_net_ftp_client_handler_20x(uni_net_ftp_client_context_t *ctx) {
  * 220: service ready for new user
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_220(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_220(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     // start startup sequence
     if(ctx->state.task.type == UNI_NET_FTP_CLIENT_TASK_TYPE_STARTUP) {
         ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_NOT_STARTED;
@@ -265,8 +278,9 @@ static void _uni_net_ftp_client_handler_220(uni_net_ftp_client_context_t *ctx) {
  * 226: transfer complete
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_226(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_226(uni_net_ftp_client_context_t *ctx, const char *str) {
     (void) ctx;
+    (void) str;
 }
 
 
@@ -277,10 +291,10 @@ static void _uni_net_ftp_client_handler_226(uni_net_ftp_client_context_t *ctx) {
 static void _uni_net_ftp_client_handler_227(uni_net_ftp_client_context_t *ctx, const char *str) {
     bool result = false;
 
-    if (str != nullptr) {
+    if (str != NULL) {
         int data[6] = {0};
         str = strchr(str, '(');
-        if (str != nullptr) {
+        if (str != NULL) {
             str++;
             sscanf(str, "%d,%d,%d,%d,%d,%d", &data[0], &data[1], &data[2], &data[3], &data[4], &data[5]);
             uint16_t port = (data[4] << 8) + data[5];
@@ -299,7 +313,8 @@ static void _uni_net_ftp_client_handler_227(uni_net_ftp_client_context_t *ctx, c
  * 230: Login Successful
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_230(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_230(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_FINISHED;
 }
 
@@ -308,7 +323,8 @@ static void _uni_net_ftp_client_handler_230(uni_net_ftp_client_context_t *ctx) {
  * 257: Pathname Created
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_257(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_257(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_FINISHED;
 }
 
@@ -317,57 +333,14 @@ static void _uni_net_ftp_client_handler_257(uni_net_ftp_client_context_t *ctx) {
  * 331: Password Required
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_331(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_331(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     _uni_net_ftp_client_send_password(ctx);
 }
 
 
-/**
- * 421: service not available
- * @param ctx
- */
-static void _uni_net_ftp_client_handler_421(uni_net_ftp_client_context_t *ctx) {
-    _uni_net_ftp_client_disconnect(ctx, true);
-}
-
-
-/**
- * 425: failed to open connection
- * @param ctx
- */
-static void _uni_net_ftp_client_handler_425(uni_net_ftp_client_context_t *ctx) {
-    _uni_net_ftp_client_disconnect(ctx, true);
-}
-
-/**
- * 426: failed writing network stream
- * @param ctx
- */
-static void _uni_net_ftp_client_handler_426(uni_net_ftp_client_context_t *ctx) {
-    _uni_net_ftp_client_disconnect(ctx, true);
-}
-
-/**
- * 451: socket error
- * @param ctx
- */
-static void _uni_net_ftp_client_handler_451(uni_net_ftp_client_context_t *ctx) {
-    _uni_net_ftp_client_disconnect(ctx, true);
-}
-
-/**
- * 500: service error
- * @param ctx
- */
-static void _uni_net_ftp_client_handler_500(uni_net_ftp_client_context_t *ctx) {
-    _uni_net_ftp_client_disconnect(ctx, true);
-}
-
-/**
- * 501: need parameter
- * @param ctx
- */
-static void _uni_net_ftp_client_handler_501(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_error(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     _uni_net_ftp_client_disconnect(ctx, true);
 }
 
@@ -375,7 +348,8 @@ static void _uni_net_ftp_client_handler_501(uni_net_ftp_client_context_t *ctx) {
  * 530: not logged in
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_530(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_530(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     _uni_net_ftp_client_send_login(ctx);
 }
 
@@ -384,7 +358,8 @@ static void _uni_net_ftp_client_handler_530(uni_net_ftp_client_context_t *ctx) {
  * 530: file unavailable
  * @param ctx
  */
-static void _uni_net_ftp_client_handler_550(uni_net_ftp_client_context_t *ctx) {
+static void _uni_net_ftp_client_handler_550(uni_net_ftp_client_context_t *ctx, const char *str) {
+    (void)str;
     ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_FAILED;
 }
 
@@ -393,89 +368,54 @@ static void _uni_net_ftp_client_handler_550(uni_net_ftp_client_context_t *ctx) {
 // Functions/Thread
 //
 
-static void _uni_net_ftp_client_work_cmd_single(uni_net_ftp_client_context_t *ctx, char *buf) {
-    // process data in case of 3-digit answer
-    if ((buf[3] == ' ') || (buf[3] == '-')) {
-        buf[3] = '\0';
-        int code = atoi(buf);
+typedef void (*uni_net_ftp_client_cmd_handler_t)(uni_net_ftp_client_context_t *ctx, const char *str);
 
-        UNI_NET_FTP_CLIENT_DBG_2("_uni_net_ftp_client_work_cmd() -> %d, %s", code, &buf[4]);
-        switch (code) {
-            case UNI_NET_FTP_CODE_150_OPENING_DATA_CONN: {
-                _uni_net_ftp_client_handler_150(ctx, &buf[4]);
-                break;
-            }
-            case UNI_NET_FTP_CODE_200_OK:
-            case UNI_NET_FTP_CODE_202_NO_MEANING: {
-                _uni_net_ftp_client_handler_20x(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_220_SERVICE_READY: {
-                _uni_net_ftp_client_handler_220(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_226_TRANSFER_COMPLETE: {
-                _uni_net_ftp_client_handler_226(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_227_ENTERING_PASSIVE_MODE: {
-                _uni_net_ftp_client_handler_227(ctx, &buf[4]);
-                break;
-            }
-            case UNI_NET_FTP_CODE_230_LOGIN_OK: {
-                _uni_net_ftp_client_handler_230(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_257_PATHNAME: {
-                _uni_net_ftp_client_handler_257(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_331_PASSWORD_REQUIRED: {
-                _uni_net_ftp_client_handler_331(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_421_SERVICE_NOT_AVAILABLE: {
-                _uni_net_ftp_client_handler_421(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_425_FAILED_TO_OPEN_CONN: {
-                _uni_net_ftp_client_handler_425(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_426_ERROR_WRITING_NETWORK_STREAM: {
-                _uni_net_ftp_client_handler_426(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_451_SOCKET_ERROR: {
-                _uni_net_ftp_client_handler_451(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_500_SERVICE_ERROR: {
-                _uni_net_ftp_client_handler_500(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_501_NEED_PARAMETER: {
-                _uni_net_ftp_client_handler_501(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_530_NOT_LOGGED_IN: {
-                _uni_net_ftp_client_handler_530(ctx);
-                break;
-            }
-            case UNI_NET_FTP_CODE_550_FILE_UNAVAILABLE: {
-                _uni_net_ftp_client_handler_550(ctx);
-                break;
-            }
-            default: {
-                printf("_uni_net_ftp_client_work_cmd() -> unknown cmd: %d\r\n", code);
-                _uni_net_ftp_client_disconnect(ctx, true);
-                break;
-            }
-        }
-    } else {
+typedef struct {
+    uni_net_ftp_code_e code;
+    uni_net_ftp_client_cmd_handler_t handler;
+} uni_net_ftp_client_cmd_map_t;
+
+static const uni_net_ftp_client_cmd_map_t _uni_net_ftp_client_cmd_map[] = {
+    { UNI_NET_FTP_CODE_150_OPENING_DATA_CONN, _uni_net_ftp_client_handler_150 },
+    { UNI_NET_FTP_CODE_200_OK, _uni_net_ftp_client_handler_20x },
+    { UNI_NET_FTP_CODE_202_NO_MEANING, _uni_net_ftp_client_handler_20x },
+    { UNI_NET_FTP_CODE_220_SERVICE_READY, _uni_net_ftp_client_handler_220 },
+    { UNI_NET_FTP_CODE_226_TRANSFER_COMPLETE, _uni_net_ftp_client_handler_226 },
+    { UNI_NET_FTP_CODE_227_ENTERING_PASSIVE_MODE, _uni_net_ftp_client_handler_227},
+    { UNI_NET_FTP_CODE_230_LOGIN_OK, _uni_net_ftp_client_handler_230 },
+    { UNI_NET_FTP_CODE_257_PATHNAME, _uni_net_ftp_client_handler_257},
+    { UNI_NET_FTP_CODE_331_PASSWORD_REQUIRED, _uni_net_ftp_client_handler_331},
+    { UNI_NET_FTP_CODE_421_SERVICE_NOT_AVAILABLE, _uni_net_ftp_client_handler_error},
+    { UNI_NET_FTP_CODE_425_FAILED_TO_OPEN_CONN, _uni_net_ftp_client_handler_error},
+    { UNI_NET_FTP_CODE_426_ERROR_WRITING_NETWORK_STREAM, _uni_net_ftp_client_handler_error },
+    { UNI_NET_FTP_CODE_451_SOCKET_ERROR, _uni_net_ftp_client_handler_error},
+    { UNI_NET_FTP_CODE_500_SERVICE_ERROR, _uni_net_ftp_client_handler_error},
+    { UNI_NET_FTP_CODE_501_NEED_PARAMETER, _uni_net_ftp_client_handler_error},
+    { UNI_NET_FTP_CODE_530_NOT_LOGGED_IN, _uni_net_ftp_client_handler_530},
+    { UNI_NET_FTP_CODE_550_FILE_UNAVAILABLE, _uni_net_ftp_client_handler_550},
+};
+
+static void _uni_net_ftp_client_work_cmd_single(uni_net_ftp_client_context_t *ctx, char *buf) {
+    if (strlen(buf) < 4 || (buf[3] != ' ' && buf[3] != '-')) {
         printf("_uni_net_ftp_client_work_cmd() -> unknown data: %s\r\n", buf);
         _uni_net_ftp_client_disconnect(ctx, true);
+        return;
     }
+
+    buf[3] = '\0';
+    int code = atoi(buf);
+    const char *payload = &buf[4];
+    UNI_NET_FTP_CLIENT_DBG_2("_uni_net_ftp_client_work_cmd() -> %d, %s", code, payload);
+    
+    for (size_t i = 0; i < sizeof(_uni_net_ftp_client_cmd_map) / sizeof(_uni_net_ftp_client_cmd_map[0]); ++i) {
+        if (_uni_net_ftp_client_cmd_map[i].code == (uni_net_ftp_code_e)code) {
+            _uni_net_ftp_client_cmd_map[i].handler(ctx, payload);
+            return;
+        }
+    }
+
+    printf("_uni_net_ftp_client_work_cmd() -> unknown cmd: %d\r\n", code);
+    _uni_net_ftp_client_disconnect(ctx, true);
 }
 
 static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
@@ -487,12 +427,17 @@ static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
         char *buf = pvPortCalloc(byte_count + 1, 1);
         int byte_rcv = FreeRTOS_recv(ctx->state.socket_cmd, buf, byte_count, 0);
         if (byte_rcv > 0) {
-            char *ptr = buf;
-            do {
-                _uni_net_ftp_client_work_cmd_single(ctx, ptr);
-                char *ptr_new = strchr(ptr + 5, '\n');
-                ptr = (ptr_new && *(++ptr_new) != '\0') ? ptr_new : nullptr;
-            } while (ptr);
+            char *next_line;
+            for (char *line = buf; line != NULL; line = next_line) {
+                next_line = strstr(line, "\r\n");
+                if (next_line) {
+                    *next_line = '\0';
+                    next_line += 2; 
+                }
+                if (*line) {
+                    _uni_net_ftp_client_work_cmd_single(ctx, line);
+                }
+            }
         }
 
 
@@ -508,10 +453,10 @@ static void _uni_net_ftp_client_work_data(uni_net_ftp_client_context_t *ctx) {
         case UNI_NET_FTP_CLIENT_TASK_TYPE_RETR: {
             int32_t cnt = 0;
             do {
-                uint8_t *buf = nullptr;
+                uint8_t *buf = NULL;
                 cnt = FreeRTOS_recv(ctx->state.socket_data, &buf, ipconfigTCP_MSS,
                                     FREERTOS_ZERO_COPY | FREERTOS_MSG_DONTWAIT);
-                if (cnt > 0 && buf != nullptr) {
+                if (cnt > 0 && buf != NULL) {
                     if(ctx->state.task.state == UNI_NET_FTP_CLIENT_TASK_STATE_STARTED) {
                         ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_IN_PROGRESS;
                     }
@@ -569,7 +514,7 @@ static void _uni_net_ftp_client_work_state_data(uni_net_ftp_client_context_t *ct
         case UNI_NET_FTP_CLIENT_TASK_STATE_IN_PROGRESS: {
             if (ctx->state.task.progress >= ctx->state.task.progress_total) {
                 if(ctx->state.callback) {
-                    ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_RECV_FINISHED, nullptr, 0);
+                    ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_RECV_FINISHED, NULL, 0);
                 }
                 _uni_net_ftp_client_set_to_idle(ctx);
             }
@@ -577,7 +522,7 @@ static void _uni_net_ftp_client_work_state_data(uni_net_ftp_client_context_t *ct
         }
         case UNI_NET_FTP_CLIENT_TASK_STATE_FAILED: {
             if(ctx->state.callback) {
-                ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_RECV_FAILED, nullptr, 0);
+                ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_RECV_FAILED, NULL, 0);
             }
             _uni_net_ftp_client_set_to_idle(ctx);
             break;
@@ -618,7 +563,7 @@ static void _uni_net_ftp_client_thread(void *pv) {
 
     while (ctx->state.task.type != UNI_NET_FTP_CLIENT_TASK_TYPE_TERMINATION) {
         // connect command socket
-        if (ctx->state.socket_cmd == nullptr) {
+        if (ctx->state.socket_cmd == NULL) {
             if (!_uni_net_ftp_client_connect_socket(ctx, &ctx->state.socket_cmd, ctx->config.server_port)) {
                 break;
             }
@@ -633,7 +578,7 @@ static void _uni_net_ftp_client_thread(void *pv) {
             }
 
             // process incoming data message
-            if (ctx->state.socket_data != nullptr) {
+            if (ctx->state.socket_data != NULL) {
                 if (FreeRTOS_FD_ISSET(ctx->state.socket_data, ctx->state.socket_set)) {
                     _uni_net_ftp_client_work_data(ctx);
                 }
@@ -650,8 +595,8 @@ static void _uni_net_ftp_client_thread(void *pv) {
     _uni_net_ftp_client_disconnect(ctx, true);
 
     // terminate thread
-    ctx->state.thread = nullptr;
-    vTaskDelete(nullptr);
+    ctx->state.thread = NULL;
+    vTaskDelete(NULL);
 }
 
 
@@ -664,7 +609,7 @@ bool uni_net_ftp_client_connect(uni_net_ftp_client_context_t *ctx, uint32_t addr
 
     bool result = false;
 
-    if (ctx != nullptr) {
+    if (ctx != NULL) {
         if (addr != 0U) {
             ctx->config.server_addr = addr;
         }
@@ -681,7 +626,7 @@ bool uni_net_ftp_client_connect(uni_net_ftp_client_context_t *ctx, uint32_t addr
 
 bool uni_net_ftp_client_disconnect(uni_net_ftp_client_context_t *ctx) {
     bool result = false;
-    if (ctx != nullptr) {
+    if (ctx != NULL) {
         ctx->state.task.type = UNI_NET_FTP_CLIENT_TASK_TYPE_TERMINATION;
     }
     return result;
@@ -689,7 +634,7 @@ bool uni_net_ftp_client_disconnect(uni_net_ftp_client_context_t *ctx) {
 
 
 bool uni_net_ftp_client_is_connected(const uni_net_ftp_client_context_t *ctx) {
-    return ctx != nullptr && (ctx->state.socket_cmd != nullptr || ctx->state.thread != nullptr);
+    return ctx != NULL && (ctx->state.socket_cmd != NULL || ctx->state.thread != NULL);
 }
 
 
@@ -707,7 +652,7 @@ uint32_t uni_net_ftp_client_get_current_addr(const uni_net_ftp_client_context_t 
 
 bool uni_net_ftp_client_set_callback(uni_net_ftp_client_context_t *ctx, uni_net_ftp_client_callback_t callback, void *cookie) {
     bool result = false;
-    if (ctx != nullptr) {
+    if (ctx != NULL) {
         ctx->state.callback = callback;
         ctx->state.cookie = cookie;
         result = true;
