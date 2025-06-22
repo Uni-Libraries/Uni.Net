@@ -9,6 +9,7 @@
 
 // FreeRTOS TCP
 #include <FreeRTOS_IP.h>
+#include <FreeRTOS_Sockets.h>
 
 // Uni.Common
 #include <uni_common.h>
@@ -22,6 +23,7 @@
 // Defines
 //
 
+#define UNI_NET_HTTP_SERVER_IFACE_TIME    (250U)
 #define UNI_NET_HTTP_SERVER_BLOCKING_TIME (50U)
 #define UNI_NET_HTTP_SERVER_PORT          (80U)
 #define UNI_NET_HTTP_SERVER_BACKLOG       (10U)
@@ -168,7 +170,7 @@ static int32_t _uni_net_http_server_send_header(uni_net_http_server_context_t* c
 #if defined(__linux__)
     idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Content-Length: %u\r\n\r\n", client->content_length);
 #else
-    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Content-Length: %lu\r\n\r\n", client->content_length);
+    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Content-Length: %lu\r\n\r\n", (unsigned long)client->content_length);
 #endif
 
     int32_t result = FreeRTOS_send(client->socket, ctx->state.buf_tx_hdr, idx, 0);
@@ -552,6 +554,11 @@ bool _uni_net_http_server_init(uni_net_http_server_context_t* ctx) {
     if (ctx != nullptr) {
         memset(&ctx->state, 0, sizeof(ctx->state));
 
+        // This function is called from a worker thread, and it's possible that the network is not yet ready. 
+        // Ensure that network is up.
+        while (FreeRTOS_IsNetworkUp() == pdFALSE) {
+            vTaskDelay(pdMS_TO_TICKS(UNI_NET_HTTP_SERVER_IFACE_TIME));
+       }
 
         ctx->state.clients = pvPortCalloc(ctx->config.max_clients, sizeof(uni_net_http_server_client_state_t *));
         ctx->state.socket_set = FreeRTOS_CreateSocketSet();
