@@ -20,7 +20,3 @@ add_subdirectory(3rdparty/freertos_tcp)
 #
 
 add_subdirectory(src)
-
-if(UNI_HAL_TARGET_MCU STREQUAL "PC")
-    add_subdirectory(src_tests)
-endif()

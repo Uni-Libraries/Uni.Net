@@ -1,4 +1,10 @@
 #
+# CMake
+#
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/")
+
+#
 # Library
 #
 
@@ -62,8 +68,13 @@ if(UNI_HAL_TARGET_MCU STREQUAL "STM32H743")
     target_sources(freertos_tcp PRIVATE "src_driver/stm32h7_hal/NetworkInterface.c")
     set_source_files_properties("src_driver/stm32h7_hal/NetworkInterface.c" PROPERTIES COMPILE_FLAGS "-Wno-expansion-to-defined -Wno-unused-function -Wno-unused-parameter")
 elseif(UNI_HAL_TARGET_MCU STREQUAL "PC")
-    target_sources(freertos_tcp PRIVATE "src_driver/linux/NetworkInterface.c")
-    set_source_files_properties("src_driver/linux/NetworkInterface.c" PROPERTIES COMPILE_FLAGS -Wno-unused-parameter)
+    if(LINUX)
+        find_package(PCAP REQUIRED)
+        target_sources(freertos_tcp PRIVATE "src_driver/linux/NetworkInterface.c")
+        set_source_files_properties("src_driver/linux/NetworkInterface.c" PROPERTIES COMPILE_FLAGS -Wno-unused-parameter)
+    else()
+        message(FATAL_ERROR "Unsupported platform")
+    endif()
 endif()
 
 
@@ -86,7 +97,7 @@ target_include_directories(freertos_tcp PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/free
 
 target_link_libraries(freertos_tcp PUBLIC freertos_kernel)
 if(UNI_HAL_TARGET_MCU STREQUAL "PC")
-    target_link_libraries(freertos_tcp PUBLIC pcap)
+    target_link_libraries(freertos_tcp PUBLIC pcap::pcap)
 elseif(UNI_HAL_TARGET_MCU STREQUAL "STM32H743")
     target_link_libraries(freertos_tcp PUBLIC st_stm32h7)
 endif()
