@@ -6,6 +6,7 @@
 
 // stdlib
 #include <stdint.h>
+#include <stdbool.h>
 
 // FreeRTOS
 #include <FreeRTOS_Sockets.h>
@@ -140,4 +141,4 @@ bool uni_net_http_server_is_inited(const uni_net_http_server_context_t* ctx );
 
 bool uni_net_http_server_signal(uni_net_http_server_context_t* ctx);
 
-bool uni_net_http_server_from_isr(uni_net_http_server_context_t* ctx, BaseType_t* higherPriorityTaskWoken);
+bool uni_net_http_server_signal_from_isr(uni_net_http_server_context_t* ctx, BaseType_t* higherPriorityTaskWoken);

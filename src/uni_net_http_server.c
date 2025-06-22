@@ -41,7 +41,7 @@ typedef struct
     int32_t cmd_len;
     const char * cmd_name;
     const uni_net_http_command_type_e cmd_type;
-} UNI_NET_http_command_t;
+} uni_net_http_command_t;
 
 
 
@@ -53,18 +53,18 @@ typedef struct
 
 static const size_t g_UNI_NET_http_cmd_count = UNI_NET_HTTP_CMD_COUNT;
 
-const UNI_NET_http_command_t g_UNI_NET_http_cmd[ UNI_NET_HTTP_CMD_COUNT ] =
+const uni_net_http_command_t g_UNI_NET_http_cmd[UNI_NET_HTTP_CMD_COUNT] =
 {
-        { 3, "GET",     UNI_NET_HTTP_COMMAND_GET     },
-        { 4, "HEAD",    UNI_NET_HTTP_COMMAND_HEAD    },
-        { 4, "POST",    UNI_NET_HTTP_COMMAND_POST    },
-        { 3, "PUT",     UNI_NET_HTTP_COMMAND_PUT     },
-        { 6, "DELETE",  UNI_NET_HTTP_COMMAND_DELETE  },
-        { 5, "TRACE",   UNI_NET_HTTP_COMMAND_TRACE   },
-        { 7, "OPTIONS", UNI_NET_HTTP_COMMAND_OPTIONS },
-        { 7, "CONNECT", UNI_NET_HTTP_COMMAND_CONNECT },
-        { 5, "PATCH",   UNI_NET_HTTP_COMMAND_PATCH   },
-        { 4, "UNKN",    UNI_NET_HTTP_COMMAND_UNKNOWN },
+    { 3, "GET",     UNI_NET_HTTP_COMMAND_GET     },
+    { 4, "HEAD",    UNI_NET_HTTP_COMMAND_HEAD    },
+    { 4, "POST",    UNI_NET_HTTP_COMMAND_POST    },
+    { 3, "PUT",     UNI_NET_HTTP_COMMAND_PUT     },
+    { 6, "DELETE",  UNI_NET_HTTP_COMMAND_DELETE  },
+    { 5, "TRACE",   UNI_NET_HTTP_COMMAND_TRACE   },
+    { 7, "OPTIONS", UNI_NET_HTTP_COMMAND_OPTIONS },
+    { 7, "CONNECT", UNI_NET_HTTP_COMMAND_CONNECT },
+    { 5, "PATCH",   UNI_NET_HTTP_COMMAND_PATCH   },
+    { 4, "UNKN",    UNI_NET_HTTP_COMMAND_UNKNOWN },
 };
 
 
@@ -72,8 +72,28 @@ const UNI_NET_http_command_t g_UNI_NET_http_cmd[ UNI_NET_HTTP_CMD_COUNT ] =
 
 
 //
-// Private/Common
-//
+// Private/CMD
+
+static int32_t _uni_net_http_server_cmd_get_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url, const char* data, size_t data_len);
+static int32_t _uni_net_http_server_cmd_get_next(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client);
+static int32_t _uni_net_http_server_cmd_post_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url, const char* data, size_t data_len);
+static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client);
+
+typedef int32_t (*uni_net_http_server_cmd_start_handler_t)(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url, const char* data, size_t data_len);
+typedef int32_t (*uni_net_http_server_cmd_next_handler_t)(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client);
+
+typedef struct {
+    uni_net_http_command_type_e cmd_type;
+    uni_net_http_server_cmd_start_handler_t start_handler;
+    uni_net_http_server_cmd_next_handler_t next_handler;
+} uni_net_http_server_cmd_map_t;
+
+static const uni_net_http_server_cmd_map_t g_http_cmd_map[] = {
+    { UNI_NET_HTTP_COMMAND_GET,  _uni_net_http_server_cmd_get_start,  _uni_net_http_server_cmd_get_next  },
+    { UNI_NET_HTTP_COMMAND_POST, _uni_net_http_server_cmd_post_start, _uni_net_http_server_cmd_post_next },
+};
+
+
 
 const char * _uni_net_http_server_status_name(uni_net_http_status_e aCode ) {
     switch (aCode) {
@@ -240,8 +260,11 @@ static int32_t _uni_net_http_server_cmd_get_sendresponse(uni_net_http_server_con
 }
 
 
-static int32_t _uni_net_http_server_cmd_get_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url) {
+static int32_t _uni_net_http_server_cmd_get_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url, const char* data, size_t data_len) {
     int32_t result;
+
+    (void)data;
+    (void)data_len;
 
     client->command_type = UNI_NET_HTTP_COMMAND_GET;
 
@@ -288,7 +311,7 @@ static int32_t _uni_net_http_server_cmd_get_next(uni_net_http_server_context_t* 
 // Private/CMD/POST
 //
 
-int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client) {
+static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client) {
     int32_t result = 0U;
 
     if (client->file_handle != nullptr) {
@@ -323,7 +346,7 @@ int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t* ctx, u
 }
 
 
-int32_t _uni_net_http_server_cmd_post_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url, const char* data, size_t data_len) {
+static int32_t _uni_net_http_server_cmd_post_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const char* url, const char* data, size_t data_len) {
     int32_t result = 0U;
 
     client->command_type = UNI_NET_HTTP_COMMAND_POST;
@@ -376,53 +399,22 @@ int32_t _uni_net_http_server_cmd_post_start(uni_net_http_server_context_t* ctx, 
 // Private/CMD
 //
 
-static int32_t _uni_net_http_server_cmd_process_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const UNI_NET_http_command_t* cmd, const char* url, const char* data, size_t data_len) {
-    int32_t result = 0;
-
-    /* A new command has been received. Process it. */
-    switch (cmd->cmd_type) {
-        case UNI_NET_HTTP_COMMAND_GET:
-            result = _uni_net_http_server_cmd_get_start(ctx, client, url);
-            break;
-        case UNI_NET_HTTP_COMMAND_POST:
-            result = _uni_net_http_server_cmd_post_start(ctx, client, url, data, data_len);
-            break;
-        case UNI_NET_HTTP_COMMAND_HEAD:
-        case UNI_NET_HTTP_COMMAND_PUT:
-        case UNI_NET_HTTP_COMMAND_DELETE:
-        case UNI_NET_HTTP_COMMAND_TRACE:
-        case UNI_NET_HTTP_COMMAND_OPTIONS:
-        case UNI_NET_HTTP_COMMAND_CONNECT:
-        case UNI_NET_HTTP_COMMAND_PATCH:
-        case UNI_NET_HTTP_COMMAND_UNKNOWN:
-            break;
+static int32_t _uni_net_http_server_cmd_process_start(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client, const uni_net_http_command_t* cmd, const char* url, const char* data, size_t data_len) {
+    for (size_t i = 0; i < sizeof(g_http_cmd_map) / sizeof(g_http_cmd_map[0]); ++i) {
+        if (g_http_cmd_map[i].cmd_type == cmd->cmd_type) {
+            return g_http_cmd_map[i].start_handler(ctx, client, url, data, data_len);
+        }
     }
-
-    return result;
+    return 0;
 }
 
 static int32_t _uni_net_http_server_cmd_process_next(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client) {
-    int32_t result = 0;
-
-    switch (client->command_type) {
-        case UNI_NET_HTTP_COMMAND_GET:
-            result = _uni_net_http_server_cmd_get_next(ctx, client);
-            break;
-        case UNI_NET_HTTP_COMMAND_POST:
-            result = _uni_net_http_server_cmd_post_next(ctx, client);
-            break;
-        case UNI_NET_HTTP_COMMAND_HEAD:
-        case UNI_NET_HTTP_COMMAND_PUT:
-        case UNI_NET_HTTP_COMMAND_DELETE:
-        case UNI_NET_HTTP_COMMAND_TRACE:
-        case UNI_NET_HTTP_COMMAND_OPTIONS:
-        case UNI_NET_HTTP_COMMAND_CONNECT:
-        case UNI_NET_HTTP_COMMAND_PATCH:
-        case UNI_NET_HTTP_COMMAND_UNKNOWN:
-            break;
+    for (size_t i = 0; i < sizeof(g_http_cmd_map) / sizeof(g_http_cmd_map[0]); ++i) {
+        if (g_http_cmd_map[i].cmd_type == client->command_type) {
+            return g_http_cmd_map[i].next_handler(ctx, client);
+        }
     }
-
-    return result;
+    return 0;
 }
 
 //
@@ -589,7 +581,7 @@ bool _uni_net_http_server_init(uni_net_http_server_context_t* ctx) {
 // Private/Thread
 //
 
-_Noreturn void _UNI_NET_net_http_thread(void* args) { //-V1082
+_Noreturn void _uni_net_http_thread(void* args) { //-V1082
     uni_net_http_server_context_t *ctx = (uni_net_http_server_context_t *) args;
 
     _uni_net_http_server_init(ctx);
@@ -608,7 +600,7 @@ bool uni_net_http_server_init(uni_net_http_server_context_t* ctx ) {
     bool result = false;
 
     if (ctx != nullptr && !uni_net_http_server_is_inited(ctx)) {
-        result = xTaskCreate(_UNI_NET_net_http_thread, "UNI_NET_HTTP_SERVER", configMINIMAL_STACK_SIZE * 4, ctx, 1,
+        result = xTaskCreate(_uni_net_http_thread, "UNI_NET_HTTP_SERVER", configMINIMAL_STACK_SIZE * 4, ctx, 1,
                              &ctx->state.handle) == pdTRUE;
         ctx->state.initialized = result;
     }

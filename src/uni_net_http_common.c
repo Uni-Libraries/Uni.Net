@@ -4,6 +4,7 @@
 
 // stdlib
 #include <string.h>
+#include <ctype.h>
 
 // Uni.net
 #include "uni_net_http_common.h"
@@ -15,7 +16,7 @@
 //
 
 #ifndef ARRAY_SIZE
-    #define  ARRAY_SIZE( x )    ( int ) ( sizeof( x ) / sizeof( x )[ 0 ] )
+    #define  ARRAY_SIZE( x )    ( sizeof( x ) / sizeof( x )[ 0 ] )
 #endif
 
 //
@@ -47,7 +48,7 @@ uni_net_http_type_couple_t g_uni_net_http_types[] =
 
 const char* uni_net_http_get_mime_type(const char* extension)
 {
-    const char* result = NULL;
+    const char* result = "application/octet-stream";
     if (extension)
     {
         for (size_t x = 0; x < ARRAY_SIZE(g_uni_net_http_types); x++) {
