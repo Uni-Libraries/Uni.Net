@@ -433,17 +433,24 @@ static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
                 next_line = strstr(line, "\r\n");
                 if (next_line) {
                     *next_line = '\0';
-                    next_line += 2; 
+                    next_line += 2;
                 }
                 if (*line) {
                     _uni_net_ftp_client_work_cmd_single(ctx, line);
                 }
+
+                if (ctx->state.task.type == UNI_NET_FTP_CLIENT_TASK_TYPE_TERMINATION) {
+                    break;
+                }
             }
         }
 
-
         // clear memory
         vPortFree(buf);
+
+        if (byte_rcv <= 0) {
+            _uni_net_ftp_client_disconnect(ctx, true);
+        }
     }
 }
 
