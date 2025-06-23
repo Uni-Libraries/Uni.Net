@@ -16,6 +16,7 @@
 // ox
 #include "uni_net_ftp_client.h"
 
+#include "io/uni_hal_io_stdio.h"
 
 
 //
@@ -24,9 +25,9 @@
 
 #define UNI_NET_FTP_CLIENT_WAIT_MS (100U)
 #if defined(UNI_NET_FTP_CLIENT_DEBUG)
-    #define UNI_NET_FTP_CLIENT_DBG_0(x)     printf(x "\r\n")
-    #define UNI_NET_FTP_CLIENT_DBG_1(x,y)   printf(x "\r\n", y )
-    #define UNI_NET_FTP_CLIENT_DBG_2(x,y,z) printf(x "\r\n", y, z )
+    #define UNI_NET_FTP_CLIENT_DBG_0(x)     uni_hal_io_stdio_printf(x "\r\n")
+    #define UNI_NET_FTP_CLIENT_DBG_1(x,y)   uni_hal_io_stdio_printf(x "\r\n", y )
+    #define UNI_NET_FTP_CLIENT_DBG_2(x,y,z) uni_hal_io_stdio_printf(x "\r\n", y, z )
 #else
     #define UNI_NET_FTP_CLIENT_DBG_0(x)
     #define UNI_NET_FTP_CLIENT_DBG_1(x,y)
@@ -95,19 +96,19 @@ static bool _uni_net_ftp_client_list_files(uni_net_ftp_client_context_t *ctx) {
 
 static bool _uni_net_ftp_client_retr_file(uni_net_ftp_client_context_t *ctx, const char *file) {
     char data[64] = {};
-    sprintf(data, "RETR %s\r\n", file);
+    uni_hal_io_stdio_snprintf(data, sizeof(data), "RETR %s\r\n", file);
     return _uni_net_ftp_client_send_cmd(ctx, data);
 }
 
 static bool _uni_net_ftp_client_send_login(uni_net_ftp_client_context_t *ctx) {
     char data[64] = {};
-    sprintf(data, "USER %s\r\n", ctx->config.auth_user);
+    uni_hal_io_stdio_snprintf(data, sizeof(data), "USER %s\r\n", ctx->config.auth_user);
     return _uni_net_ftp_client_send_cmd(ctx, data);
 }
 
 static bool _uni_net_ftp_client_send_password(uni_net_ftp_client_context_t *ctx) {
     char data[64] = {};
-    sprintf(data, "PASS %s\r\n", ctx->config.auth_password);
+    uni_hal_io_stdio_snprintf(data, sizeof(data), "PASS %s\r\n", ctx->config.auth_password);
     return _uni_net_ftp_client_send_cmd(ctx, data);
 }
 
@@ -397,7 +398,7 @@ static const uni_net_ftp_client_cmd_map_t _uni_net_ftp_client_cmd_map[] = {
 
 static void _uni_net_ftp_client_work_cmd_single(uni_net_ftp_client_context_t *ctx, char *buf) {
     if (strlen(buf) < 4 || (buf[3] != ' ' && buf[3] != '-')) {
-        printf("_uni_net_ftp_client_work_cmd() -> unknown data: %s\r\n", buf);
+        uni_hal_io_stdio_printf("_uni_net_ftp_client_work_cmd() -> unknown data: %s\r\n", buf);
         _uni_net_ftp_client_disconnect(ctx, true);
         return;
     }
@@ -414,7 +415,7 @@ static void _uni_net_ftp_client_work_cmd_single(uni_net_ftp_client_context_t *ct
         }
     }
 
-    printf("_uni_net_ftp_client_work_cmd() -> unknown cmd: %d\r\n", code);
+    uni_hal_io_stdio_printf("_uni_net_ftp_client_work_cmd() -> unknown cmd: %d\r\n", code);
     _uni_net_ftp_client_disconnect(ctx, true);
 }
 

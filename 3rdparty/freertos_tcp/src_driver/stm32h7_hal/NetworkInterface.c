@@ -71,6 +71,9 @@
     #error "Unknown STM32 Family for NetworkInterface"
 #endif /* if defined( STM32F4 ) */
 
+/* Uni.HAL includes */
+int uni_hal_io_stdio_snprintf(char *buffer, size_t buffer_size, const char* format, ...) __attribute__((format(printf, 3, 4)));
+
 /*---------------------------------------------------------------------------*/
 /*===========================================================================*/
 /*                                Config                                     */
@@ -2000,7 +2003,7 @@ NetworkInterface_t * pxSTM32_FillInterfaceDescriptor( BaseType_t xEMACIndex,
 {
     static char pcName[ 17 ];
 
-    ( void ) snprintf( pcName, sizeof( pcName ), "eth%u", ( unsigned ) xEMACIndex );
+    uni_hal_io_stdio_snprintf(pcName, sizeof( pcName ), "eth%u", ( unsigned ) xEMACIndex );
 
     ( void ) memset( pxInterface, '\0', sizeof( *pxInterface ) );
     pxInterface->pcName = pcName;

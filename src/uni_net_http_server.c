@@ -14,6 +14,9 @@
 // Uni.Common
 #include <uni_common.h>
 
+// Uni.Hal
+#include <uni_hal.h>
+
 // Uni.Net
 #include "uni_net_http_server.h"
 
@@ -157,20 +160,20 @@ static int32_t _uni_net_http_server_send_header(uni_net_http_server_context_t* c
     }
 
     // HTTP code
-    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "HTTP/1.1 %d %s\r\n", (int) status, _uni_net_http_server_status_name(status));
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "HTTP/1.1 %d %s\r\n", (int) status, _uni_net_http_server_status_name(status));
 
     // Content Type
-    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Content-Type: %s\r\n",
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Content-Type: %s\r\n",
                    client->content_type != nullptr ? client->content_type : "text/html");
 
     // Connection
-    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Connection: keep-alive\r\n");
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Connection: keep-alive\r\n");
 
     // Content length
 #if defined(__linux__)
-    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Content-Length: %u\r\n\r\n", client->content_length);
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Content-Length: %u\r\n\r\n", client->content_length);
 #else
-    idx += sprintf(&ctx->state.buf_tx_hdr[idx], "Content-Length: %lu\r\n\r\n", (unsigned long)client->content_length);
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Content-Length: %lu\r\n\r\n", (unsigned long)client->content_length);
 #endif
 
     int32_t result = FreeRTOS_send(client->socket, ctx->state.buf_tx_hdr, idx, 0);
