@@ -34,6 +34,7 @@
 #define UNI_NET_HTTP_SERVER_RX_BUF        (2U * ipconfigTCP_MSS)
 #define UNI_NET_HTTP_SERVER_TX_WIN        (2U)
 #define UNI_NET_HTTP_SERVER_TX_BUF        (2U * ipconfigTCP_MSS)
+#define UNI_NET_HTTP_SERVER_TASK_PRIORITY (2U)
 
 
 
@@ -160,20 +161,20 @@ static int32_t _uni_net_http_server_send_header(uni_net_http_server_context_t* c
     }
 
     // HTTP code
-    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "HTTP/1.1 %d %s\r\n", (int) status, _uni_net_http_server_status_name(status));
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "HTTP/1.1 %d %s\r\n", (int) status, _uni_net_http_server_status_name(status));
 
     // Content Type
-    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Content-Type: %s\r\n",
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Content-Type: %s\r\n",
                    client->content_type != nullptr ? client->content_type : "text/html");
 
     // Connection
-    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Connection: keep-alive\r\n");
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Connection: keep-alive\r\n");
 
     // Content length
 #if defined(__linux__)
-    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Content-Length: %u\r\n\r\n", client->content_length);
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Content-Length: %u\r\n\r\n", client->content_length);
 #else
-    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr[idx])-idx-1, "Content-Length: %lu\r\n\r\n", (unsigned long)client->content_length);
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Content-Length: %lu\r\n\r\n", (unsigned long)client->content_length);
 #endif
 
     int32_t result = FreeRTOS_send(client->socket, ctx->state.buf_tx_hdr, idx, 0);
@@ -618,7 +619,7 @@ bool uni_net_http_server_init(uni_net_http_server_context_t* ctx ) {
     bool result = false;
 
     if (ctx != nullptr && !uni_net_http_server_is_inited(ctx)) {
-        result = xTaskCreate(_uni_net_http_thread, "UNI_NET_HTTP_SERVER", configMINIMAL_STACK_SIZE * 4, ctx, 1,
+        result = xTaskCreate(_uni_net_http_thread, "UNI_NET_HTTP_SERVER", configMINIMAL_STACK_SIZE * 4, ctx, UNI_NET_HTTP_SERVER_TASK_PRIORITY,
                              &ctx->state.handle) == pdTRUE;
         ctx->state.initialized = result;
     }
