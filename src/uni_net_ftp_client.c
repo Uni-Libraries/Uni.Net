@@ -235,12 +235,10 @@ static void _uni_net_ftp_client_handler_550(uni_net_ftp_client_context_t *ctx, c
 static void _uni_net_ftp_client_handler_150(uni_net_ftp_client_context_t *ctx, const char *str) {
     if (str != NULL) {
         //determine file size
-        int data = 0;
         str = strchr(str, '(');
         if (str != NULL) {
             str++;
-            sscanf(str, "%d", &data);
-            ctx->state.task.progress_total = data;
+            ctx->state.task.progress_total = strtol(str, NULL, 10);
         }
         else {
             ctx->state.task.progress_total = 1;
@@ -293,13 +291,36 @@ static void _uni_net_ftp_client_handler_227(uni_net_ftp_client_context_t *ctx, c
     bool result = false;
 
     if (str != NULL) {
-        int data[6] = {0};
         str = strchr(str, '(');
         if (str != NULL) {
-            str++;
-            sscanf(str, "%d,%d,%d,%d,%d,%d", &data[0], &data[1], &data[2], &data[3], &data[4], &data[5]);
-            uint16_t port = (data[4] << 8) + data[5];
-            result = _uni_net_ftp_client_connect_socket(ctx, &ctx->state.socket_data, port);
+            str++; // Move past '('
+            char *p = (char*)str;
+            int data[6] = {0};
+            bool parse_ok = true;
+            for (int i = 0; i < 6; i++) {
+                char *endp;
+                data[i] = strtol(p, &endp, 10);
+                if (p == endp) { // Check if a number was parsed
+                    parse_ok = false;
+                    break;
+                }
+                p = endp;
+                if (i < 5) {
+                    if (*p == ',') {
+                        p++; // Move past ','
+                    } else {
+                        parse_ok = false;
+                        break;
+                    }
+                }
+            }
+
+            if (parse_ok) {
+                uint16_t port = (data[4] << 8) + data[5];
+                result = _uni_net_ftp_client_connect_socket(ctx, &ctx->state.socket_data, port);
+            } else {
+                result = false;
+            }
         }
         ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_STARTED;
     }
@@ -426,6 +447,10 @@ static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
         // get received data
         // TODO: zerocopy
         char *buf = pvPortCalloc(byte_count + 1, 1);
+        if(buf == NULL) {
+            _uni_net_ftp_client_disconnect(ctx, true);
+            return;
+        }
         int byte_rcv = FreeRTOS_recv(ctx->state.socket_cmd, buf, byte_count, 0);
         if (byte_rcv > 0) {
             char *next_line;
@@ -626,7 +651,7 @@ bool uni_net_ftp_client_connect(uni_net_ftp_client_context_t *ctx, uint32_t addr
         }
 
         result = xTaskCreate(_uni_net_ftp_client_thread, "UNI_NET_FTP_CLIENT", configMINIMAL_STACK_SIZE * 4, ctx, 1,
-                             &ctx->state.thread) == pdTRUE;
+                              &ctx->state.thread) == pdTRUE;
     }
     return result;
 }
@@ -656,6 +681,10 @@ uint32_t uni_net_ftp_client_get_current_addr(const uni_net_ftp_client_context_t 
         result = ctx->config.server_addr;
     }
     return result;
+}
+
+const uni_net_ftp_client_task_t *uni_net_ftp_client_get_task(const uni_net_ftp_client_context_t *ctx) {
+    return &ctx->state.task;
 }
 
 bool uni_net_ftp_client_set_callback(uni_net_ftp_client_context_t *ctx, uni_net_ftp_client_callback_t callback, void *cookie) {

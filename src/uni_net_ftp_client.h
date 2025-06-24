@@ -247,6 +247,13 @@ bool uni_net_ftp_client_is_idle(const uni_net_ftp_client_context_t *ctx);
 uint32_t uni_net_ftp_client_get_current_addr(const uni_net_ftp_client_context_t *ctx);
 
 /**
+ * Get current FTP task
+ * @param ctx FTP client context pointer
+ * @return pointer to the current task
+ */
+const uni_net_ftp_client_task_t *uni_net_ftp_client_get_task(const uni_net_ftp_client_context_t *ctx);
+
+/**
  * Download file from FTP server
  * @param ctx FTP client context pointer
  * @param filename file name
