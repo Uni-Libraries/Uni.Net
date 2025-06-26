@@ -26,6 +26,7 @@
 uni_net_http_type_couple_t g_uni_net_http_types[] =
 {
     { "html", "text/html"              },
+    { "json", "application/json"       },
     { "css",  "text/css"               },
     { "js",   "text/javascript"        },
     { "png",  "image/png"              },
