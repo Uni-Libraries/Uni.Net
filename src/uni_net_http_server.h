@@ -9,7 +9,9 @@
 #include <stdbool.h>
 
 // FreeRTOS
+#include <FreeRTOS_IP.h>
 #include <FreeRTOS_Sockets.h>
+
 
 
 // Uni.Net
@@ -24,6 +26,8 @@
 //
 
 
+#define UNI_NET_HTTP_SERVER_RX_BUF        (2U * ipconfigTCP_MSS)
+#define UNI_NET_HTTP_SERVER_TX_BUF        (2U * ipconfigTCP_MSS)
 
 
 typedef struct {
@@ -62,6 +66,16 @@ typedef struct {
      * Content type to sent
      */
     const char* content_type;
+
+    /**
+     * A buffer to receive.
+     */
+    char buf_rx[ UNI_NET_HTTP_SERVER_RX_BUF ];
+
+    /**
+     * A buffer to send.
+     */
+    char buf_tx[ UNI_NET_HTTP_SERVER_TX_BUF ];
 } uni_net_http_server_client_state_t;
 
 
@@ -91,16 +105,6 @@ typedef struct
      * HTTP clients
      */
     uni_net_http_server_client_state_t ** clients;
-
-    /**
-     * A buffer to receive.
-     */
-    char buf_rx[ ipconfigTCP_MSS ];
-
-    /**
-     * A buffer to send.
-     */
-    char buf_tx[ ipconfigTCP_MSS ];
 
     /**
      * A buffer to send.

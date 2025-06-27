@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 // FreeRTOS TCP
 #include <FreeRTOS_IP.h>
@@ -31,9 +32,7 @@
 #define UNI_NET_HTTP_SERVER_PORT          (80U)
 #define UNI_NET_HTTP_SERVER_BACKLOG       (10U)
 #define UNI_NET_HTTP_SERVER_RX_WIN        (2U)
-#define UNI_NET_HTTP_SERVER_RX_BUF        (2U * ipconfigTCP_MSS)
 #define UNI_NET_HTTP_SERVER_TX_WIN        (2U)
-#define UNI_NET_HTTP_SERVER_TX_BUF        (2U * ipconfigTCP_MSS)
 #define UNI_NET_HTTP_SERVER_TASK_PRIORITY (2U)
 
 
@@ -211,12 +210,12 @@ static int32_t _uni_net_http_server_cmd_get_sendfile(uni_net_http_server_context
         do {
             size_t uxSpace = FreeRTOS_tx_space(client->socket);
             uxCount = uni_common_math_min3(uxSpace, client->file->size - client->file_offset,
-                                       sizeof(ctx->state.buf_tx));
-
-            if (uxCount > 0u) {
-                memcpy(ctx->state.buf_tx, &client->file->data[client->file_offset], uxCount);
-                client->file_offset += uxCount;
-                result = FreeRTOS_send(client->socket, ctx->state.buf_tx, uxCount, 0);
+                                       sizeof(client->buf_tx));
+ 
+             if (uxCount > 0u) {
+                 memcpy(client->buf_tx, &client->file->data[client->file_offset], uxCount);
+                 client->file_offset += uxCount;
+                 result = FreeRTOS_send(client->socket, client->buf_tx, uxCount, 0);
                 if (result < 0) {
                     break;
                 }
@@ -241,7 +240,7 @@ static int32_t _uni_net_http_server_cmd_get_sendresponse(uni_net_http_server_con
 
     // format string
     if (client->handler->command == UNI_NET_HTTP_COMMAND_GET && client->handler->function != NULL) {
-        result = client->handler->function(client->handler->userdata, (uint8_t*)ctx->state.buf_tx, sizeof(ctx->state.buf_tx), (const uint8_t*)ctx->state.buf_rx, sizeof(ctx->state.buf_rx));
+        result = client->handler->function(client->handler->userdata, (uint8_t*)client->buf_tx, sizeof(client->buf_tx), (const uint8_t*)client->buf_rx, sizeof(client->buf_rx));
 
         // calculate space
         client->content_length = FreeRTOS_tx_space(client->socket);
@@ -253,7 +252,7 @@ static int32_t _uni_net_http_server_cmd_get_sendresponse(uni_net_http_server_con
         // Requested file action OK
         if (_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_OK) >= 0) {
             if (result >= 0) {
-                result = FreeRTOS_send(client->socket, ctx->state.buf_tx, client->content_length, 0);
+                result = FreeRTOS_send(client->socket, client->buf_tx, client->content_length, 0);
             }
         }
     } else {
@@ -332,16 +331,16 @@ static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t*
     if (client->handler != NULL) {
         size_t remaining = client->content_length - client->file_offset;
         if (remaining > 0U) {
-            result = FreeRTOS_recv(client->socket, ctx->state.buf_rx, sizeof(ctx->state.buf_rx), 0);
+            result = FreeRTOS_recv(client->socket, client->buf_rx, sizeof(client->buf_rx), 0);
             if (result > 0) {
-                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)ctx->state.buf_rx, result);
+                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)client->buf_rx, result);
                 client->file_offset += result;
             } else {
                 FreeRTOS_printf(("Receive error during POST body: %d\n", result));
             }
         }
         else{
-            result = client->handler->function(client->handler->userdata, (uint8_t*)ctx->state.buf_tx, sizeof(ctx->state.buf_tx), NULL, 0U);
+            result = client->handler->function(client->handler->userdata, (uint8_t*)client->buf_tx, sizeof(client->buf_tx), NULL, 0U);
 
             client->content_length = FreeRTOS_tx_space(client->socket);
             client->content_length = uni_common_math_min(client->content_length, (uint32_t)result);
@@ -349,7 +348,7 @@ static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t*
 
             if (_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_OK) >= 0) {
                 if (result >= 0) {
-                    result = FreeRTOS_send(client->socket, ctx->state.buf_tx, client->content_length, 0);
+                    result = FreeRTOS_send(client->socket, client->buf_tx, client->content_length, 0);
                 }
             }
             _uni_net_http_server_client_clear(client);
@@ -457,11 +456,11 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
         result = -1;
     }
     else if (client->command_type == UNI_NET_HTTP_COMMAND_UNKNOWN) {
-        int32_t recv_cnt = FreeRTOS_recv(client->socket, ( void * ) ctx->state.buf_rx, sizeof( ctx->state.buf_rx ), 0 );
+        int32_t recv_cnt = FreeRTOS_recv(client->socket, ( void * ) client->buf_rx, sizeof( client->buf_rx ), 0 );
         if( recv_cnt > 0 ) {
             result = recv_cnt;
-            char *pcBuffer = ctx->state.buf_rx;
-            if (result < (BaseType_t) sizeof(ctx->state.buf_rx)) {
+            char *pcBuffer = client->buf_rx;
+            if (result < (BaseType_t) sizeof(client->buf_rx)) {
                 pcBuffer[result] = '\0';
             }
 
@@ -496,7 +495,7 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
             }
 
             if (cmd_idx < (g_UNI_NET_http_cmd_count - 1)) {
-                result = _uni_net_http_server_cmd_process_start(ctx, client, &g_UNI_NET_http_cmd[cmd_idx], url, data+1, recv_cnt - (data + 1 - ctx->state.buf_rx));
+                result = _uni_net_http_server_cmd_process_start(ctx, client, &g_UNI_NET_http_cmd[cmd_idx], url, data+1, recv_cnt - (data + 1 - client->buf_rx));
             }
         }
     }
