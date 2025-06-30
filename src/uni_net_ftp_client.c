@@ -190,7 +190,7 @@ static bool _uni_net_ftp_client_connect_socket(uni_net_ftp_client_context_t *ctx
 }
 
 
-static void _uni_net_ftp_client_disconnect(uni_net_ftp_client_context_t *ctx, bool call_callback) {
+static void _uni_net_ftp_client_disconnect(uni_net_ftp_client_context_t *ctx, bool call_callback, uint32_t reason) {
     if (ctx->state.socket_data != NULL) {
         FreeRTOS_closesocket(ctx->state.socket_data);
         ctx->state.socket_data = NULL;
@@ -207,7 +207,7 @@ static void _uni_net_ftp_client_disconnect(uni_net_ftp_client_context_t *ctx, bo
     }
 
     if(call_callback && ctx->state.callback) {
-        ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_DISCONNECT, NULL, 0);
+        ctx->state.callback(ctx->state.cookie, &ctx->state.task, UNI_NET_FTP_CLIENT_CALLBACK_DISCONNECT, NULL, reason);
     }
 
     ctx->state.task.type = UNI_NET_FTP_CLIENT_TASK_TYPE_TERMINATION;
@@ -363,7 +363,7 @@ static void _uni_net_ftp_client_handler_331(uni_net_ftp_client_context_t *ctx, c
 
 static void _uni_net_ftp_client_handler_error(uni_net_ftp_client_context_t *ctx, const char *str) {
     (void)str;
-    _uni_net_ftp_client_disconnect(ctx, true);
+    _uni_net_ftp_client_disconnect(ctx, true, UNI_NET_FTP_CLIENT_DISCONNECT_REASON_RESPONSE_ERR);
 }
 
 /**
@@ -420,7 +420,7 @@ static const uni_net_ftp_client_cmd_map_t _uni_net_ftp_client_cmd_map[] = {
 static void _uni_net_ftp_client_work_cmd_single(uni_net_ftp_client_context_t *ctx, char *buf) {
     if (strlen(buf) < 4 || (buf[3] != ' ' && buf[3] != '-')) {
         uni_hal_io_stdio_printf("_uni_net_ftp_client_work_cmd() -> unknown data: %s\r\n", buf);
-        _uni_net_ftp_client_disconnect(ctx, true);
+        _uni_net_ftp_client_disconnect(ctx, true, UNI_NET_FTP_CLIENT_DISCONNECT_REASON_WRONG_DATA);
         return;
     }
 
@@ -437,7 +437,7 @@ static void _uni_net_ftp_client_work_cmd_single(uni_net_ftp_client_context_t *ct
     }
 
     uni_hal_io_stdio_printf("_uni_net_ftp_client_work_cmd() -> unknown cmd: %d\r\n", code);
-    _uni_net_ftp_client_disconnect(ctx, true);
+    _uni_net_ftp_client_disconnect(ctx, true, UNI_NET_FTP_CLIENT_DISCONNECT_REASON_WRONG_CMD);
 }
 
 static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
@@ -448,7 +448,7 @@ static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
         // TODO: zerocopy
         char *buf = pvPortCalloc(byte_count + 1, 1);
         if(buf == NULL) {
-            _uni_net_ftp_client_disconnect(ctx, true);
+            _uni_net_ftp_client_disconnect(ctx, true, UNI_NET_FTP_CLIENT_DISCONNECT_REASON_MEMORY_ALLOC);
             return;
         }
         int byte_rcv = FreeRTOS_recv(ctx->state.socket_cmd, buf, byte_count, 0);
@@ -474,7 +474,7 @@ static void _uni_net_ftp_client_work_cmd(uni_net_ftp_client_context_t *ctx) {
         vPortFree(buf);
 
         if (byte_rcv <= 0) {
-            _uni_net_ftp_client_disconnect(ctx, true);
+            _uni_net_ftp_client_disconnect(ctx, true, UNI_NET_FTP_CLIENT_DISCONNECT_REASON_NO_BYTES);
         }
     }
 }
@@ -587,17 +587,19 @@ static void _uni_net_ftp_client_thread(void *pv) {
     uni_net_ftp_client_context_t *ctx = pv;
 
     // cleanup
-    _uni_net_ftp_client_disconnect(ctx, false);
+    _uni_net_ftp_client_disconnect(ctx, false, UNI_NET_FTP_CLIENT_DISCONNECT_REASON_UNKNOWN);
 
     // prepare
     ctx->state.task.type = UNI_NET_FTP_CLIENT_TASK_TYPE_STARTUP;
     ctx->state.task.state = UNI_NET_FTP_CLIENT_TASK_STATE_IN_PROGRESS;
     ctx->state.task.progress = 0;
 
+    uni_net_ftp_client_disconnect_reason_e disconnect_reason = UNI_NET_FTP_CLIENT_DISCONNECT_REASON_TERMINATION;
     while (ctx->state.task.type != UNI_NET_FTP_CLIENT_TASK_TYPE_TERMINATION) {
         // connect command socket
         if (ctx->state.socket_cmd == NULL) {
             if (!_uni_net_ftp_client_connect_socket(ctx, &ctx->state.socket_cmd, ctx->config.server_port)) {
+                disconnect_reason = UNI_NET_FTP_CLIENT_DISCONNECT_REASON_CONNECT;
                 break;
             }
         }
@@ -616,7 +618,11 @@ static void _uni_net_ftp_client_thread(void *pv) {
                     _uni_net_ftp_client_work_data(ctx);
                 }
             }
-        } else if (!FreeRTOS_IsNetworkUp() || FreeRTOS_issocketconnected(ctx->state.socket_cmd) != pdTRUE) {
+        } else if (!FreeRTOS_IsNetworkUp()) {
+            disconnect_reason = UNI_NET_FTP_CLIENT_DISCONNECT_REASON_NETWORK;
+            break;
+        } else if (FreeRTOS_issocketconnected(ctx->state.socket_cmd) != pdTRUE) {
+            disconnect_reason = UNI_NET_FTP_CLIENT_DISCONNECT_REASON_SOCKET;
             break;
         }
 
@@ -625,7 +631,7 @@ static void _uni_net_ftp_client_thread(void *pv) {
     }
 
     // disconnect
-    _uni_net_ftp_client_disconnect(ctx, true);
+    _uni_net_ftp_client_disconnect(ctx, true, disconnect_reason);
 
     // terminate thread
     ctx->state.thread = NULL;
