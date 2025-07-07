@@ -27,7 +27,7 @@
 
 
 #define UNI_NET_HTTP_SERVER_RX_BUF        (2U * ipconfigTCP_MSS)
-#define UNI_NET_HTTP_SERVER_TX_BUF        (2U * ipconfigTCP_MSS)
+#define UNI_NET_HTTP_SERVER_TX_BUF        (6U * ipconfigTCP_MSS)
 
 
 typedef struct {
