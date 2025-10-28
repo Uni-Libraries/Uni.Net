@@ -187,7 +187,11 @@ static void _uni_net_http_server_client_clear(uni_net_http_server_client_state_t
     client->file = NULL;
     client->handler = NULL;
     client->file_offset = 0U;
+    client->content_length = 0U;
     client->header_sent = false;
+    client->content_type = NULL;
+    client->rx_len = 0U;
+    client->headers_done = false;
 }
 
 
@@ -331,10 +335,12 @@ static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t*
     if (client->handler != NULL) {
         size_t remaining = client->content_length - client->file_offset;
         if (remaining > 0U) {
-            result = FreeRTOS_recv(client->socket, client->buf_rx, sizeof(client->buf_rx), 0);
+            size_t to_recv = uni_common_math_min(remaining, (size_t)sizeof(client->buf_rx));
+            result = FreeRTOS_recv(client->socket, client->buf_rx, to_recv, 0);
             if (result > 0) {
-                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)client->buf_rx, result);
-                client->file_offset += result;
+                size_t deliver = uni_common_math_min((size_t)result, remaining);
+                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)client->buf_rx, deliver);
+                client->file_offset += deliver;
             } else {
                 FreeRTOS_printf(("Receive error during POST body: %d\n", result));
             }
@@ -376,28 +382,22 @@ static int32_t _uni_net_http_server_cmd_post_start(uni_net_http_server_context_t
     }
 
     if (client->handler != NULL) {
-        char *length_ptr = strstr(data, "Content-Length: ");
-        char *body_start = strstr(data, "\r\n\r\n");
-        if (length_ptr != NULL && body_start != NULL) {
-            length_ptr += 16;
-            body_start += 4;
-
-            client->content_length = strtol(length_ptr, NULL, 10);
-            FreeRTOS_printf(("_uni_net_http_server_cmd_post_start: CONLEN= %u\n", client->content_length));
-
-                data_len -= (body_start - data);
-                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)body_start, data_len);
-                client->file_offset += data_len;
-                if (client->file_offset >= client->content_length) {
-                    result = _uni_net_http_server_cmd_post_next(ctx, client);
-                }
-                else{
-                    FreeRTOS_FD_SET(client->socket, ctx->state.socket_set, eSELECT_READ);
-                }
+        // Initial body bytes (if any) arrived in the same segment as headers.
+        if (data != NULL && data_len > 0U && client->content_length >= client->file_offset) {
+            size_t remaining = client->content_length - client->file_offset;
+            size_t chunk = uni_common_math_min(remaining, data_len);
+            if (chunk > 0U) {
+                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)data, chunk);
+                client->file_offset += chunk;
+            }
         }
-        else{
-            result = _uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
-            _uni_net_http_server_client_clear(client);
+
+        if (client->file_offset >= client->content_length) {
+            // All body received, move to response stage
+            result = _uni_net_http_server_cmd_post_next(ctx, client);
+        } else {
+            // Need more body bytes
+            FreeRTOS_FD_SET(client->socket, ctx->state.socket_set, eSELECT_READ);
         }
     }
     else {
@@ -456,47 +456,157 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
         result = -1;
     }
     else if (client->command_type == UNI_NET_HTTP_COMMAND_UNKNOWN) {
-        int32_t recv_cnt = FreeRTOS_recv(client->socket, ( void * ) client->buf_rx, sizeof( client->buf_rx ), 0 );
-        if( recv_cnt > 0 ) {
+        // Accumulate request until headers are complete. Then parse and dispatch.
+        int32_t recv_cnt = FreeRTOS_recv(client->socket,
+                                         (void *)(client->buf_rx + client->rx_len),
+                                         sizeof(client->buf_rx) - client->rx_len,
+                                         0);
+        if (recv_cnt > 0) {
             result = recv_cnt;
-            char *pcBuffer = client->buf_rx;
-            if (result < (BaseType_t) sizeof(client->buf_rx)) {
-                pcBuffer[result] = '\0';
+            client->rx_len += (uint32_t)recv_cnt;
+
+            // Guard: headers too large for buffer
+            if (client->rx_len > sizeof(client->buf_rx)) {
+                client->rx_len = sizeof(client->buf_rx);
             }
 
-            while (result && (pcBuffer[result - 1] == 13 || pcBuffer[result - 1] == 10)) {
-                pcBuffer[--result] = '\0';
+            // Find end of headers: "\r\n\r\n"
+            int32_t hdr_end = -1;
+            for (uint32_t i = 0; i + 3 < client->rx_len; ++i) {
+                if (client->buf_rx[i] == '\r' && client->buf_rx[i + 1] == '\n'
+                 && client->buf_rx[i + 2] == '\r' && client->buf_rx[i + 3] == '\n') {
+                    hdr_end = (int32_t)(i + 4);
+                    break;
+                }
             }
 
-            const char * pcEndOfCmd = pcBuffer + result;
+            if (hdr_end < 0) {
+                // Headers not complete yet
+                if (client->rx_len == sizeof(client->buf_rx)) {
+                    // Header does not fit into buffer
+                    (void)_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
+                    _uni_net_http_server_client_clear(client);
+                    FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);
+                }
+                // Wait for more data
+                return result;
+            }
 
-            // Pointing to "/index.html HTTP/1.1"
-            char* url = pcBuffer;
-            char* data = nullptr;
+            client->headers_done = true;
 
-            // Last entry is "ECMD_UNK"
+            // Determine command from the start of request buffer
             size_t cmd_idx = 0;
             for (; cmd_idx < g_UNI_NET_http_cmd_count - 1; cmd_idx++) {
                 int32_t cmd_len = g_UNI_NET_http_cmd[cmd_idx].cmd_len;
                 const char *cmd_name = g_UNI_NET_http_cmd[cmd_idx].cmd_name;
 
-                if ((result >= cmd_len) && (memcmp(cmd_name, pcBuffer, cmd_len) == 0)) {
-                    url += cmd_len + 1;
-                    for (data = url; data < pcEndOfCmd; data++) {
-                        char ch = *data;
-
-                        if ((ch == '\0') || (strchr("\n\r \t", ch) != NULL)) {
-                            *data = '\0';
-                            break;
-                        }
-                    }
+                if ((client->rx_len >= (uint32_t)cmd_len) && (memcmp(cmd_name, client->buf_rx, cmd_len) == 0)) {
                     break;
                 }
             }
-
-            if (cmd_idx < (g_UNI_NET_http_cmd_count - 1)) {
-                result = _uni_net_http_server_cmd_process_start(ctx, client, &g_UNI_NET_http_cmd[cmd_idx], url, data+1, recv_cnt - (data + 1 - client->buf_rx));
+            if (cmd_idx >= (g_UNI_NET_http_cmd_count - 1)) {
+                (void)_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
+                _uni_net_http_server_client_clear(client);
+                FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);
+                return -1;
             }
+
+            // Extract URL: after method and a space, until whitespace
+            char *url = client->buf_rx + g_UNI_NET_http_cmd[cmd_idx].cmd_len + 1;
+            char *url_end = url;
+            while ((url_end - client->buf_rx) < hdr_end) {
+                char ch = *url_end;
+                if (ch == '\r' || ch == '\n' || ch == ' ' || ch == '\t') {
+                    *url_end = '\0';
+                    break;
+                }
+                url_end++;
+            }
+            if ((url_end - client->buf_rx) >= hdr_end) {
+                (void)_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
+                _uni_net_http_server_client_clear(client);
+                FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);
+                return -1;
+            }
+
+            // Parse Content-Length (case-insensitive)
+            uint32_t content_length = 0U;
+            bool cl_found = false;
+            // Move p to first header line after request line
+            char *p = client->buf_rx;
+            // find end of request line
+            for (; (p + 1) < (client->buf_rx + hdr_end); ++p) {
+                if (p[0] == '\r' && p[1] == '\n') {
+                    p += 2;
+                    break;
+                }
+            }
+            while ((p + 1) < (client->buf_rx + hdr_end)) {
+                if (p[0] == '\r' && p[1] == '\n') {
+                    break;
+                }
+                // find end of current line
+                char *e = p;
+                while ((e + 1) < (client->buf_rx + hdr_end) && !(e[0] == '\r' && e[1] == '\n')) {
+                    e++;
+                }
+
+                const char *name = "Content-Length:";
+                size_t name_len = strlen(name);
+                if ((size_t)(e - p) >= name_len) {
+                    bool match = true;
+                    for (size_t i = 0; i < name_len; ++i) {
+                        char a = p[i];
+                        char b = name[i];
+                        if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+                        if (b >= 'A' && b <= 'Z') b = (char)(b + 32);
+                        if (a != b) { match = false; break; }
+                    }
+                    if (match) {
+                        size_t j = name_len;
+                        while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
+                        uint32_t val = 0U;
+                        bool any = false;
+                        while (p + j < e && (p[j] >= '0' && p[j] <= '9')) {
+                            any = true;
+                            val = val * 10U + (uint32_t)(p[j] - '0');
+                            j++;
+                        }
+                        if (any) {
+                            content_length = val;
+                            cl_found = true;
+                        }
+                    }
+                }
+                p = e + 2;
+            }
+
+            // Compute body bytes that arrived with headers (may be zero)
+            size_t body_avail = client->rx_len - (size_t)hdr_end;
+            const char *body_ptr = client->buf_rx + hdr_end;
+
+            if (g_UNI_NET_http_cmd[cmd_idx].cmd_type == UNI_NET_HTTP_COMMAND_POST) {
+                if (!cl_found) {
+                    (void)_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
+                    _uni_net_http_server_client_clear(client);
+                    FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);
+                    return -1;
+                }
+                client->content_length = content_length;
+            }
+
+            // Start handling command; for POST, 'data' points to initial body bytes
+            result = _uni_net_http_server_cmd_process_start(
+                ctx,
+                client,
+                &g_UNI_NET_http_cmd[cmd_idx],
+                url,
+                body_ptr,
+                body_avail
+            );
+
+            // Request data handed off; reset accumulation buffer
+            client->rx_len = 0U;
         }
     }
     else {

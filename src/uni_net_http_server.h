@@ -68,6 +68,16 @@ typedef struct {
     const char* content_type;
 
     /**
+     * Accumulated bytes in buf_rx for request parsing
+     */
+    uint32_t rx_len;
+
+    /**
+     * Request headers parsing state (true when "\r\n\r\n" found)
+     */
+    bool headers_done;
+
+    /**
      * A buffer to receive.
      */
     char buf_rx[ UNI_NET_HTTP_SERVER_RX_BUF ];
