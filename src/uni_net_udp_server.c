@@ -70,15 +70,65 @@ static void _uni_net_udp_server_task(void* arg) {
     uni_net_udp_server_context_t* ctx = (uni_net_udp_server_context_t*)arg;
     uint8_t rxbuf[UNI_NET_UDP_SERVER_RX_BUF_SIZE];
 
-    for (;;) {
-        if (ctx->state.stop_requested) {
-            break;
-        }
+    // Wait for network up before binding/creating socket
+    while ((FreeRTOS_IsNetworkUp() == pdFALSE) && !ctx->state.stop_requested) {
+        vTaskDelay(pdMS_TO_TICKS(UNI_NET_UDP_SERVER_IFACE_TIME_MS));
+    }
 
+    if (!ctx->state.stop_requested) {
+        // Create synchronization primitive
+        ctx->state.lock = xSemaphoreCreateMutex();
+
+        if (ctx->state.lock != NULL) {
+            // Create UDP socket
+            ctx->state.socket = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP);
+
+            if (_socket_valid(ctx->state.socket)) {
+                // Apply timeouts and checksum option
+                if (_apply_timeouts(ctx->state.socket, ctx->config.rx_timeout_ms, ctx->config.tx_timeout_ms) == 0) {
+                    (void)_apply_checksum_disable(ctx->state.socket, ctx->config.checksum_disable);
+
+                    // Bind to local endpoint
+                    struct freertos_sockaddr local = { 0 };
+                    local.sin_family = FREERTOS_AF_INET;
+                    local.sin_port   = FreeRTOS_htons(ctx->config.bind_port_hbo);
+#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
+                    local.sin_addr   = ctx->config.bind_addr_nbo;
+#else
+                    local.sin_address.ulIP_IPv4 = ctx->config.bind_addr_nbo;
+#endif
+
+                    if (FreeRTOS_bind(ctx->state.socket, &local, sizeof(local)) == 0) {
+                        ctx->state.initialized = true;
+                    } else {
+                        FreeRTOS_closesocket(ctx->state.socket);
+                        ctx->state.socket = FREERTOS_INVALID_SOCKET;
+                    }
+                } else {
+                    FreeRTOS_closesocket(ctx->state.socket);
+                    ctx->state.socket = FREERTOS_INVALID_SOCKET;
+                }
+            }
+
+            if (!ctx->state.initialized) {
+                vSemaphoreDelete(ctx->state.lock);
+                ctx->state.lock = NULL;
+            }
+        }
+    }
+
+    // If configured without event-driven receive, idle until stop is requested
+    if (!ctx->state.stop_requested && !(ctx->config.use_task && ctx->config.on_receive != NULL)) {
+        while (!ctx->state.stop_requested) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+
+    // Event-driven receive loop
+    while (!ctx->state.stop_requested && (ctx->config.use_task && ctx->config.on_receive != NULL)) {
         struct freertos_sockaddr from = { 0 };
         uint32_t from_len = sizeof(from);
 
-        int32_t rv;
         _lock(ctx);
         Socket_t s = ctx->state.socket;
         _unlock(ctx);
@@ -88,7 +138,7 @@ static void _uni_net_udp_server_task(void* arg) {
             continue;
         }
 
-        rv = FreeRTOS_recvfrom(s, rxbuf, sizeof(rxbuf), 0, &from, &from_len);
+        int32_t rv = FreeRTOS_recvfrom(s, rxbuf, sizeof(rxbuf), 0, &from, &from_len);
         rv = _map_timeout_to_wouldblock(rv);
 
         if (rv > 0 && ctx->config.on_receive != NULL) {
@@ -135,68 +185,21 @@ bool uni_net_udp_server_start(uni_net_udp_server_context_t* ctx, const uni_net_u
     ctx->config.task_priority     = (cfg != NULL) ? cfg->task_priority     : UNI_NET_UDP_SERVER_TASK_PRIORITY;
     ctx->config.task_stack_words  = (cfg != NULL) ? cfg->task_stack_words  : UNI_NET_UDP_SERVER_TASK_STACK_WORDS;
 
-    // Wait for network up before binding
-    while (FreeRTOS_IsNetworkUp() == pdFALSE) {
-        vTaskDelay(pdMS_TO_TICKS(UNI_NET_UDP_SERVER_IFACE_TIME_MS));
-    }
-
-    ctx->state.lock = xSemaphoreCreateMutex();
-    if (ctx->state.lock == NULL) {
-        memset(ctx, 0, sizeof(*ctx));
-        return false;
-    }
-
-    ctx->state.socket = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP);
-    if (!_socket_valid(ctx->state.socket)) {
-        vSemaphoreDelete(ctx->state.lock);
-        memset(ctx, 0, sizeof(*ctx));
-        return false;
-    }
-
-    if (_apply_timeouts(ctx->state.socket, ctx->config.rx_timeout_ms, ctx->config.tx_timeout_ms) != 0) {
-        FreeRTOS_closesocket(ctx->state.socket);
-        vSemaphoreDelete(ctx->state.lock);
-        memset(ctx, 0, sizeof(*ctx));
-        return false;
-    }
-
-    (void)_apply_checksum_disable(ctx->state.socket, ctx->config.checksum_disable);
-    // Broadcast enable is a no-op in FreeRTOS+TCP; intention is stored in config.
-
-    struct freertos_sockaddr local = { 0 };
-    local.sin_family = FREERTOS_AF_INET;
-    local.sin_port   = FreeRTOS_htons(ctx->config.bind_port_hbo);
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-    local.sin_addr   = ctx->config.bind_addr_nbo;
-#else
-    local.sin_address.ulIP_IPv4 = ctx->config.bind_addr_nbo;
-#endif
-
-    if (FreeRTOS_bind(ctx->state.socket, &local, sizeof(local)) != 0) {
-        FreeRTOS_closesocket(ctx->state.socket);
-        vSemaphoreDelete(ctx->state.lock);
-        memset(ctx, 0, sizeof(*ctx));
-        return false;
-    }
-
-    ctx->state.initialized = true;
+    ctx->state.initialized = false;
     ctx->state.stop_requested = false;
 
-    if (ctx->config.use_task && ctx->config.on_receive != NULL) {
-        BaseType_t created = xTaskCreate(
-            _uni_net_udp_server_task,
-            "UNI_NET_UDP_SERVER",
-            ctx->config.task_stack_words,
-            ctx,
-            ctx->config.task_priority,
-            &ctx->state.task
-        );
-        if (created != pdTRUE) {
-            FreeRTOS_closesocket(ctx->state.socket);
-            vSemaphoreDelete(ctx->state.lock);
-            memset(ctx, 0, sizeof(*ctx));
-            return false;
-        }
+    // Always create a task; it will perform all initialization internally
+    BaseType_t created = xTaskCreate(
+        _uni_net_udp_server_task,
+        "UNI_NET_UDP_SERVER",
+        ctx->config.task_stack_words,
+        ctx,
+        ctx->config.task_priority,
+        &ctx->state.task
+    );
+    if (created != pdTRUE) {
+        memset(ctx, 0, sizeof(*ctx));
+        return false;
     }
 
     return true;
@@ -207,14 +210,14 @@ bool uni_net_udp_server_is_inited(const uni_net_udp_server_context_t* ctx) {
 }
 
 bool uni_net_udp_server_stop(uni_net_udp_server_context_t* ctx) {
-    if (ctx == NULL || !uni_net_udp_server_is_inited(ctx)) {
+    if (ctx == NULL) {
         return false;
     }
 
     // Request task termination if running
     ctx->state.stop_requested = true;
 
-    // Speed up task exit by reducing receive timeout
+    // Speed up task exit by reducing receive timeout (if socket exists)
     _lock(ctx);
     if (_socket_valid(ctx->state.socket)) {
         TickType_t rx_ticks = pdMS_TO_TICKS(50U);
@@ -248,8 +251,8 @@ int32_t uni_net_udp_server_recvfrom(uni_net_udp_server_context_t* ctx, uint8_t* 
     if (ctx == NULL || buf == NULL || buf_size == 0 || !uni_net_udp_server_is_inited(ctx)) {
         return -pdFREERTOS_ERRNO_EINVAL;
     }
-    // Cannot be used while task-driven mode is active
-    if (ctx->state.task != NULL) {
+    // Cannot be used while event-driven receive task is active
+    if ((ctx->config.use_task && ctx->config.on_receive != NULL) && (ctx->state.task != NULL)) {
         return -pdFREERTOS_ERRNO_EALREADY;
     }
 

@@ -121,24 +121,37 @@ typedef struct {
 //
 
 /**
- * Start a UDP server: create and bind a UDP socket, apply options, and optionally spawn a task.
+ * Start a UDP server task.
  *
- * Behavior:
+ * This function only spawns a FreeRTOS task; all initialization work
+ * (waiting for network up, socket creation, applying options, binding)
+ * is performed inside the task context to avoid calling vTaskDelay from
+ * outside a task.
+ *
+ * Behavior inside the task:
  *  - Waits for network up using FreeRTOS_IsNetworkUp() before binding.
  *  - Creates a datagram socket (AF_INET/SOCK_DGRAM/IPPROTO_UDP).
  *  - Applies RCVTIMEO/SNDTIMEO using pdMS_TO_TICKS.
- *  - Binding to the requested local port/address (IPv4).
- *  - If config.use_task is true and on_receive is non-NULL, creates a FreeRTOS task that blocks in
- *    FreeRTOS_recvfrom and invokes the callback for each datagram received.
+ *  - Binds to the requested local port/address (IPv4).
+ *  - If config.use_task is true and on_receive is non-NULL, the task blocks in
+ *    FreeRTOS_recvfrom() and invokes the callback for each datagram.
+ *  - Otherwise, the task idles while keeping the socket available for
+ *    synchronous APIs (e.g., uni_net_udp_server_recvfrom()) from other tasks.
+ *
+ * Note:
+ *  - Call uni_net_udp_server_is_inited() to check when initialization has
+ *    completed and the socket is ready for use.
  *
  * Parameters:
  *  - ctx: Server context to initialize (must not be NULL).
  *  - cfg: Optional configuration. If NULL, sensible defaults are used:
- *         any address, port 0 (ephemeral), default timeouts, no broadcast, checksum enabled,
- *         no task mode.
+ *         any address, port 0 (ephemeral), default timeouts, no broadcast,
+ *         checksum enabled, event-driven receive disabled.
  *
  * Returns:
- *  - true on success; false on invalid arguments or socket/task creation failure.
+ *  - true if the server task was created; false on invalid arguments or
+ *    task creation failure. Actual socket init results are handled inside
+ *    the task and reflected by uni_net_udp_server_is_inited().
  */
 bool uni_net_udp_server_start(uni_net_udp_server_context_t* ctx, const uni_net_udp_server_config_t* cfg);
 
