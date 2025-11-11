@@ -1106,7 +1106,7 @@ static void prvInitMacAddresses( ETH_HandleTypeDef * pxEthHandle,
     xFilterConfig.SrcAddrFiltering = DISABLE;
     xFilterConfig.SrcAddrInverseFiltering = DISABLE;
     xFilterConfig.ControlPacketsFilter = ETH_CTRLPACKETS_BLOCK_ALL;
-    xFilterConfig.BroadcastFilter = ENABLE;
+    xFilterConfig.BroadcastFilter = DISABLE;
     xFilterConfig.PassAllMulticast = DISABLE;
     xFilterConfig.DestAddrInverseFiltering = DISABLE;
     xFilterConfig.HashMulticast = ENABLE;
