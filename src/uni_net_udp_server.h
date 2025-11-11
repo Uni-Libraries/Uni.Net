@@ -84,22 +84,18 @@ typedef void (*uni_net_udp_server_recv_cb)(void* user, const uint8_t* payload, s
 
 typedef struct {
     // Bind configuration
-    uint16_t bind_port_hbo;     /* Local UDP port to bind (host byte order). */
-    uint32_t bind_addr_nbo;     /* Local IPv4 address (network byte order), use 0 or FREERTOS_INADDR_ANY for any. */
+    uint32_t bind_addr;
+    uint16_t bind_port;
 
     // Socket options
     uint32_t rx_timeout_ms;     /* Receive timeout in milliseconds. */
     uint32_t tx_timeout_ms;     /* Send timeout in milliseconds. */
-    bool     allow_broadcast;   /* If true, application intents to use broadcast; FreeRTOS+TCP doesn't need SO_BROADCAST. */
-    bool     checksum_disable;  /* Best-effort: disable UDP checksum if supported; otherwise a no-op. */
 
     // Event-driven mode
-    bool                       use_task;         /* If true, start a dedicated task to receive datagrams. */
     uni_net_udp_server_recv_cb on_receive;       /* Callback to invoke on incoming datagrams in task mode. */
     void*                      user;             /* User context pointer passed to callback. */
     UBaseType_t                task_priority;    /* Task priority for the server task. */
     uint32_t                   task_stack_words; /* Task stack size in words. */
-
 } uni_net_udp_server_config_t;
 
 typedef struct {
@@ -213,66 +209,10 @@ bool uni_net_udp_server_set_timeouts(uni_net_udp_server_context_t* ctx, uint32_t
 bool uni_net_udp_server_get_timeouts(const uni_net_udp_server_context_t* ctx, uint32_t* rx_timeout_ms, uint32_t* tx_timeout_ms);
 
 /**
- * Enable/disable broadcast intent. FreeRTOS+TCP allows sending to 255.255.255.255 without SO_BROADCAST.
- * This function records the preference and returns true; it is a no-op on the socket.
- */
-bool uni_net_udp_server_set_broadcast(uni_net_udp_server_context_t* ctx, bool enable);
-
-/**
- * Get broadcast intent flag from the server configuration.
- */
-bool uni_net_udp_server_get_broadcast(const uni_net_udp_server_context_t* ctx, bool* enable);
-
-/**
  * Best-effort control to disable UDP checksum if supported by the stack build. If not supported,
  * this call is a no-op and returns true.
  */
 bool uni_net_udp_server_set_checksum_disable(uni_net_udp_server_context_t* ctx, bool disable);
-
-
-//
-// Usage example (copy into an application task)
-//
-// Note: Make sure FreeRTOS+TCP is initialized and the network is up.
-//
-
-/*
-#include <uni_net.h>
-
-static void my_udp_server_on_receive(void* user, const uint8_t* payload, size_t length, const uni_net_udp_endpoint_t* from) {
-    (void)user;
-    FreeRTOS_printf(("UDP server got %u bytes from %x:%u\n",
-                     (unsigned)length, (unsigned)from->addr, (unsigned)FreeRTOS_ntohs(from->port)));
-}
-
-void app_udp_server_task(void* arg) {
-    uni_net_udp_server_context_t server = {0};
-
-    uni_net_udp_server_config_t cfg = {
-        .bind_port_hbo   = 12345,
-        .bind_addr_nbo   = 0, // any
-        .rx_timeout_ms   = UNI_NET_UDP_SERVER_DEFAULT_RX_TIMEOUT_MS,
-        .tx_timeout_ms   = UNI_NET_UDP_SERVER_DEFAULT_TX_TIMEOUT_MS,
-        .allow_broadcast = false,
-        .checksum_disable= false,
-        .use_task        = true,
-        .on_receive      = my_udp_server_on_receive,
-        .user            = NULL,
-        .task_priority   = UNI_NET_UDP_SERVER_TASK_PRIORITY,
-        .task_stack_words= UNI_NET_UDP_SERVER_TASK_STACK_WORDS
-    };
-
-    if (!uni_net_udp_server_start(&server, &cfg)) {
-        FreeRTOS_printf(("UDP server start failed\n"));
-        vTaskDelete(NULL);
-    }
-
-    // ... run other application code ...
-
-    (void)uni_net_udp_server_stop(&server);
-    vTaskDelete(NULL);
-}
-*/
 
 #if defined(__cplusplus)
 }

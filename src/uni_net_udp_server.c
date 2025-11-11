@@ -22,6 +22,8 @@
 // Uni.NET
 #include "uni_net_udp_server.h"
 
+#include "uni_common_bytes.h"
+
 //
 // Private helpers
 //
@@ -47,12 +49,6 @@ static BaseType_t _apply_timeouts(Socket_t s, uint32_t rx_timeout_ms, uint32_t t
     BaseType_t r1 = FreeRTOS_setsockopt(s, 0, FREERTOS_SO_RCVTIMEO, &rx_ticks, sizeof(rx_ticks));
     BaseType_t r2 = FreeRTOS_setsockopt(s, 0, FREERTOS_SO_SNDTIMEO, &tx_ticks, sizeof(tx_ticks));
     return (r1 == 0 && r2 == 0) ? 0 : -1;
-}
-
-static BaseType_t _apply_checksum_disable(Socket_t s, bool disable) {
-    /* FreeRTOS+TCP option to enable(1)/disable(0) outgoing UDP checksum on this socket. */
-    BaseType_t on = disable ? 0 : 1;
-    return FreeRTOS_setsockopt(s, 0, FREERTOS_SO_UDPCKSUM_OUT, &on, sizeof(on));
 }
 
 static inline int32_t _map_timeout_to_wouldblock(int32_t rv) {
@@ -86,17 +82,11 @@ static void _uni_net_udp_server_task(void* arg) {
             if (_socket_valid(ctx->state.socket)) {
                 // Apply timeouts and checksum option
                 if (_apply_timeouts(ctx->state.socket, ctx->config.rx_timeout_ms, ctx->config.tx_timeout_ms) == 0) {
-                    (void)_apply_checksum_disable(ctx->state.socket, ctx->config.checksum_disable);
-
                     // Bind to local endpoint
                     struct freertos_sockaddr local = { 0 };
                     local.sin_family = FREERTOS_AF_INET;
-                    local.sin_port   = FreeRTOS_htons(ctx->config.bind_port_hbo);
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-                    local.sin_addr   = ctx->config.bind_addr_nbo;
-#else
-                    local.sin_address.ulIP_IPv4 = ctx->config.bind_addr_nbo;
-#endif
+                    local.sin_port   = uni_common_bytes_swap16(ctx->config.bind_port);
+                    local.sin_address.ulIP_IPv4 = ctx->config.bind_addr;
 
                     if (FreeRTOS_bind(ctx->state.socket, &local, sizeof(local)) == 0) {
                         ctx->state.initialized = true;
@@ -118,14 +108,14 @@ static void _uni_net_udp_server_task(void* arg) {
     }
 
     // If configured without event-driven receive, idle until stop is requested
-    if (!ctx->state.stop_requested && !(ctx->config.use_task && ctx->config.on_receive != NULL)) {
+    if (!ctx->state.stop_requested && ctx->config.on_receive == NULL) {
         while (!ctx->state.stop_requested) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 
     // Event-driven receive loop
-    while (!ctx->state.stop_requested && (ctx->config.use_task && ctx->config.on_receive != NULL)) {
+    while (!ctx->state.stop_requested && ctx->config.on_receive != NULL) {
         struct freertos_sockaddr from = { 0 };
         uint32_t from_len = sizeof(from);
 
@@ -143,11 +133,7 @@ static void _uni_net_udp_server_task(void* arg) {
 
         if (rv > 0 && ctx->config.on_receive != NULL) {
             uni_net_udp_endpoint_t ep;
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-            ep.addr = from.sin_addr;
-#else
             ep.addr = from.sin_address.ulIP_IPv4;
-#endif
             ep.port = from.sin_port;
             ctx->config.on_receive(ctx->config.user, rxbuf, (size_t)rv, &ep);
         } else {
@@ -172,14 +158,12 @@ bool uni_net_udp_server_start(uni_net_udp_server_context_t* ctx, const uni_net_u
     memset(ctx, 0, sizeof(*ctx));
 
     // Defaults
+    ctx->config.bind_addr         = (cfg != NULL) ? cfg->bind_addr   : FREERTOS_INADDR_ANY;
+    ctx->config.bind_port         = (cfg != NULL) ? cfg->bind_port   : 0U;
+
     ctx->config.rx_timeout_ms     = (cfg != NULL) ? cfg->rx_timeout_ms     : UNI_NET_UDP_SERVER_DEFAULT_RX_TIMEOUT_MS;
     ctx->config.tx_timeout_ms     = (cfg != NULL) ? cfg->tx_timeout_ms     : UNI_NET_UDP_SERVER_DEFAULT_TX_TIMEOUT_MS;
-    ctx->config.allow_broadcast   = (cfg != NULL) ? cfg->allow_broadcast   : false;
-    ctx->config.checksum_disable  = (cfg != NULL) ? cfg->checksum_disable  : false;
-    ctx->config.bind_port_hbo     = (cfg != NULL) ? cfg->bind_port_hbo     : 0U;
-    ctx->config.bind_addr_nbo     = (cfg != NULL) ? cfg->bind_addr_nbo     : (uint32_t)FREERTOS_INADDR_ANY;
 
-    ctx->config.use_task          = (cfg != NULL) ? cfg->use_task          : false;
     ctx->config.on_receive        = (cfg != NULL) ? cfg->on_receive        : NULL;
     ctx->config.user              = (cfg != NULL) ? cfg->user              : NULL;
     ctx->config.task_priority     = (cfg != NULL) ? cfg->task_priority     : UNI_NET_UDP_SERVER_TASK_PRIORITY;
@@ -252,7 +236,7 @@ int32_t uni_net_udp_server_recvfrom(uni_net_udp_server_context_t* ctx, uint8_t* 
         return -pdFREERTOS_ERRNO_EINVAL;
     }
     // Cannot be used while event-driven receive task is active
-    if ((ctx->config.use_task && ctx->config.on_receive != NULL) && (ctx->state.task != NULL)) {
+    if ((ctx->config.on_receive != NULL) && (ctx->state.task != NULL)) {
         return -pdFREERTOS_ERRNO_EALREADY;
     }
 
@@ -276,11 +260,7 @@ int32_t uni_net_udp_server_recvfrom(uni_net_udp_server_context_t* ctx, uint8_t* 
     _unlock(ctx);
 
     if (rv >= 0 && out_from != NULL && from_len >= sizeof(from)) {
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-        out_from->addr = from.sin_addr;
-#else
         out_from->addr = from.sin_address.ulIP_IPv4;
-#endif
         out_from->port = from.sin_port;
     }
 
@@ -295,11 +275,7 @@ int32_t uni_net_udp_server_sendto(uni_net_udp_server_context_t* ctx, const uint8
     struct freertos_sockaddr dst = { 0 };
     dst.sin_family = FREERTOS_AF_INET;
     dst.sin_port   = to->port;
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-    dst.sin_addr   = to->addr;
-#else
     dst.sin_address.ulIP_IPv4 = to->addr;
-#endif
 
     // Avoid deadlock if called from server task: skip lock in that case
     TaskHandle_t self = xTaskGetCurrentTaskHandle();
@@ -345,34 +321,4 @@ bool uni_net_udp_server_get_timeouts(const uni_net_udp_server_context_t* ctx, ui
         *tx_timeout_ms = ctx->config.tx_timeout_ms;
     }
     return true;
-}
-
-bool uni_net_udp_server_set_broadcast(uni_net_udp_server_context_t* ctx, bool enable) {
-    if (ctx == NULL || !uni_net_udp_server_is_inited(ctx)) {
-        return false;
-    }
-    // No SO_BROADCAST in FreeRTOS+TCP; just record intention
-    ctx->config.allow_broadcast = enable;
-    return true;
-}
-
-bool uni_net_udp_server_get_broadcast(const uni_net_udp_server_context_t* ctx, bool* enable) {
-    if (ctx == NULL || enable == NULL) {
-        return false;
-    }
-    *enable = ctx->config.allow_broadcast;
-    return true;
-}
-
-bool uni_net_udp_server_set_checksum_disable(uni_net_udp_server_context_t* ctx, bool disable) {
-    if (ctx == NULL || !uni_net_udp_server_is_inited(ctx)) {
-        return false;
-    }
-    _lock(ctx);
-    BaseType_t rc = _apply_checksum_disable(ctx->state.socket, disable);
-    if (rc == 0) {
-        ctx->config.checksum_disable = disable;
-    }
-    _unlock(ctx);
-    return (rc == 0);
 }
