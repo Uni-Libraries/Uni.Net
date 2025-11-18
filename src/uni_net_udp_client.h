@@ -116,8 +116,6 @@ static inline void uni_net_udp_endpoint_init_quick(uni_net_udp_endpoint_t* ep, u
 typedef struct {
     uint32_t rx_timeout_ms;     /* Receive timeout in milliseconds */
     uint32_t tx_timeout_ms;     /* Send timeout in milliseconds */
-    bool     broadcast_enable;  /* Whether to enable SO_BROADCAST */
-    bool     checksum_disable;  /* Best-effort: if supported by stack, disable UDP checksum */
 } uni_net_udp_client_config_t;
 
 typedef struct {

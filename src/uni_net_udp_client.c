@@ -1,20 +1,30 @@
-/*
- * SPDX-License-Identifier: MIT
- * UDP client implementation for Uni.NET using FreeRTOS+TCP
- */
+// SPDX-License-Identifier: MIT
 
+//
 // Includes
+//
 
+// stdlib
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
 
+// FreeRTOS
 #include <FreeRTOS.h>
 #include <semphr.h>
+
+// FreeRTOS+TCP
 #include <FreeRTOS_IP.h>
 #include <FreeRTOS_Sockets.h>
 
+// Uni.Net
 #include "uni_net_udp_client.h"
+
+
+
+//
+// Implementation
+//
 
 // Private helpers
 static inline void _lock(uni_net_udp_client_context_t* ctx) {
@@ -36,19 +46,6 @@ static BaseType_t _apply_timeouts(Socket_t s, uint32_t rx_timeout_ms, uint32_t t
     return (r1 == 0 && r2 == 0) ? 0 : -1;
 }
 
-static BaseType_t _apply_broadcast(Socket_t s, bool enable) {
-    (void)s;
-    (void)enable;
-    /* FreeRTOS+TCP has no SO_BROADCAST option; sending to 255.255.255.255 is sufficient. */
-    return 0;
-}
-
-static BaseType_t _apply_checksum_disable(Socket_t s, bool disable) {
-    /* FreeRTOS+TCP option to enable(1)/disable(0) UDP checksum on this socket (outgoing). */
-    BaseType_t on = disable ? 0 : 1;
-    return FreeRTOS_setsockopt(s, 0, FREERTOS_SO_UDPCKSUM_OUT, &on, sizeof(on));
-}
-
 static inline int32_t _map_timeout_to_wouldblock(int32_t rv) {
     if (rv == -pdFREERTOS_ERRNO_EWOULDBLOCK || rv == -pdFREERTOS_ERRNO_ETIMEDOUT) {
         return UNI_NET_UDP_RET_TIMEOUT;
@@ -60,47 +57,51 @@ static inline bool _socket_valid(Socket_t s) {
     return (s != NULL) && (s != FREERTOS_INVALID_SOCKET);
 }
 
-// Public API
+
+
+//
+// Public
+//
+
 bool uni_net_udp_client_init(uni_net_udp_client_context_t* ctx, const uni_net_udp_client_config_t* cfg) {
-    if (ctx == NULL) {
-        return false;
-    }
+    bool result = false;
 
-    memset(ctx, 0, sizeof(*ctx));
-
-    ctx->config.rx_timeout_ms    = (cfg != NULL) ? cfg->rx_timeout_ms    : UNI_NET_UDP_DEFAULT_RX_TIMEOUT_MS;
-    ctx->config.tx_timeout_ms    = (cfg != NULL) ? cfg->tx_timeout_ms    : UNI_NET_UDP_DEFAULT_TX_TIMEOUT_MS;
-    ctx->config.broadcast_enable = (cfg != NULL) ? cfg->broadcast_enable : false;
-    ctx->config.checksum_disable = (cfg != NULL) ? cfg->checksum_disable : false;
-
-    ctx->state.lock = xSemaphoreCreateMutex();
-    if (ctx->state.lock == NULL) {
-        return false;
-    }
-
-    ctx->state.socket = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP);
-    if (!_socket_valid(ctx->state.socket)) {
-        vSemaphoreDelete(ctx->state.lock);
+    if (ctx != NULL) {
         memset(ctx, 0, sizeof(*ctx));
-        return false;
+        ctx->config.rx_timeout_ms    = UNI_NET_UDP_DEFAULT_RX_TIMEOUT_MS;
+        ctx->config.tx_timeout_ms    = UNI_NET_UDP_DEFAULT_TX_TIMEOUT_MS;
+        if (cfg != nullptr) {
+            ctx->config.rx_timeout_ms    =  cfg->rx_timeout_ms;
+            ctx->config.tx_timeout_ms    =  cfg->tx_timeout_ms;
+        }
+
+        ctx->state.lock = xSemaphoreCreateMutex();
+
+        if (ctx->state.lock != NULL) {
+            ctx->state.socket = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP);
+            if (_socket_valid(ctx->state.socket)) {
+                if(_apply_timeouts(ctx->state.socket, ctx->config.rx_timeout_ms, ctx->config.tx_timeout_ms) == 0) {
+                    result = true;
+                    ctx->state.initialized = true;
+                }
+                else {
+                    FreeRTOS_closesocket(ctx->state.socket);
+                    vSemaphoreDelete(ctx->state.lock);
+                    memset(ctx, 0, sizeof(*ctx));
+                }
+            }
+            else {
+                vSemaphoreDelete(ctx->state.lock);
+                memset(ctx, 0, sizeof(*ctx));
+            }
+        }
     }
 
-    if (_apply_timeouts(ctx->state.socket, ctx->config.rx_timeout_ms, ctx->config.tx_timeout_ms) != 0) {
-        FreeRTOS_closesocket(ctx->state.socket);
-        vSemaphoreDelete(ctx->state.lock);
-        memset(ctx, 0, sizeof(*ctx));
-        return false;
-    }
-
-    (void)_apply_broadcast(ctx->state.socket, ctx->config.broadcast_enable);
-    (void)_apply_checksum_disable(ctx->state.socket, ctx->config.checksum_disable);
-
-    ctx->state.initialized = true;
-    return true;
+    return result;
 }
 
 bool uni_net_udp_client_is_inited(const uni_net_udp_client_context_t* ctx) {
-    return (ctx != NULL) && (ctx->state.initialized);
+    return (ctx != nullptr) && (ctx->state.initialized);
 }
 
 bool uni_net_udp_client_deinit(uni_net_udp_client_context_t* ctx) {
@@ -132,11 +133,7 @@ bool uni_net_udp_client_connect(uni_net_udp_client_context_t* ctx, const uni_net
     struct freertos_sockaddr addr = { 0 };
     addr.sin_family = FREERTOS_AF_INET;
     addr.sin_port = remote->port;
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-    addr.sin_addr = remote->addr;
-#else
     addr.sin_address.ulIP_IPv4 = remote->addr;
-#endif
 
     _lock(ctx);
     BaseType_t rc = FreeRTOS_connect(ctx->state.socket, &addr, sizeof(addr));
@@ -180,11 +177,7 @@ int32_t uni_net_udp_client_sendto(uni_net_udp_client_context_t* ctx, const uint8
     struct freertos_sockaddr to = { 0 };
     to.sin_family = FREERTOS_AF_INET;
     to.sin_port = remote->port;
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-    to.sin_addr = remote->addr;
-#else
     to.sin_address.ulIP_IPv4 = remote->addr;
-#endif
 
     _lock(ctx);
     int32_t rv = FreeRTOS_sendto(ctx->state.socket, buf, (int32_t)len, 0, &to, sizeof(to));
@@ -211,11 +204,7 @@ int32_t uni_net_udp_client_recvfrom(uni_net_udp_client_context_t* ctx, uint8_t* 
 
     rv = _map_timeout_to_wouldblock(rv);
     if (rv >= 0 && out_src != NULL && from_len >= sizeof(from)) {
-#if ( ipconfigIPv4_BACKWARD_COMPATIBLE == 1 )
-        out_src->addr = from.sin_addr;
-#else
         out_src->addr = from.sin_address.ulIP_IPv4;
-#endif
         out_src->port = from.sin_port;
     }
     return rv;
@@ -246,38 +235,4 @@ bool uni_net_udp_client_get_timeouts(const uni_net_udp_client_context_t* ctx, ui
         *tx_timeout_ms = ctx->config.tx_timeout_ms;
     }
     return true;
-}
-
-bool uni_net_udp_client_set_broadcast(uni_net_udp_client_context_t* ctx, bool enable) {
-    if (ctx == NULL || !uni_net_udp_client_is_inited(ctx)) {
-        return false;
-    }
-    _lock(ctx);
-    BaseType_t rc = _apply_broadcast(ctx->state.socket, enable);
-    if (rc == 0) {
-        ctx->config.broadcast_enable = enable;
-    }
-    _unlock(ctx);
-    return (rc == 0);
-}
-
-bool uni_net_udp_client_get_broadcast(const uni_net_udp_client_context_t* ctx, bool* enable) {
-    if (ctx == NULL || enable == NULL) {
-        return false;
-    }
-    *enable = ctx->config.broadcast_enable;
-    return true;
-}
-
-bool uni_net_udp_client_set_checksum_disable(uni_net_udp_client_context_t* ctx, bool disable) {
-    if (ctx == NULL || !uni_net_udp_client_is_inited(ctx)) {
-        return false;
-    }
-    _lock(ctx);
-    BaseType_t rc = _apply_checksum_disable(ctx->state.socket, disable);
-    if (rc == 0) {
-        ctx->config.checksum_disable = disable;
-    }
-    _unlock(ctx);
-    return (rc == 0);
 }
