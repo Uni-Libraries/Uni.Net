@@ -102,7 +102,7 @@ int uni_hal_io_stdio_snprintf(char *buffer, size_t buffer_size, const char* form
 #define niEMAC_TX_MUTEX_NAME              "EMAC_TxMutex"
 #define niEMAC_TX_DESC_SEM_NAME           "EMAC_TxDescSem"
 
-#define niEMAC_AUTO_NEGOTIATION           ipconfigENABLE
+#define niEMAC_AUTO_NEGOTIATION           ipconfigDISABLE
 #define niEMAC_USE_100MB                  ( ipconfigENABLE && ipconfigIS_DISABLED( niEMAC_AUTO_NEGOTIATION ) )
 #define niEMAC_USE_FULL_DUPLEX            ( ipconfigENABLE && ipconfigIS_DISABLED( niEMAC_AUTO_NEGOTIATION ) )
 #define niEMAC_AUTO_CROSS                 ( ipconfigENABLE && ipconfigIS_ENABLED( niEMAC_AUTO_NEGOTIATION ) )
