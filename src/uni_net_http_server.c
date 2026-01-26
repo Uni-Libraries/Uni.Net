@@ -166,6 +166,15 @@ static int32_t _uni_net_http_server_send_header(uni_net_http_server_context_t* c
     idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Content-Type: %s\r\n",
                    client->content_type != nullptr ? client->content_type : "text/html");
 
+    // Disable browser/proxy caching for all responses (embedded UI expects fresh assets).
+    // Note: meta tags are not reliable; HTTP headers are authoritative.
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1,
+                                    "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n");
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1,
+                                    "Pragma: no-cache\r\n");
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1,
+                                    "Expires: 0\r\n");
+
     // Connection
     idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Connection: keep-alive\r\n");
 
