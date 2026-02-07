@@ -29,19 +29,19 @@
 //
 
 static inline void _lock(uni_net_udp_server_context_t *ctx) {
-    if (ctx != NULL && ctx->state.lock != NULL) {
+    if (ctx != nullptr && ctx->state.lock != nullptr) {
         (void) xSemaphoreTake(ctx->state.lock, portMAX_DELAY);
     }
 }
 
 static inline void _unlock(uni_net_udp_server_context_t *ctx) {
-    if (ctx != NULL && ctx->state.lock != NULL) {
+    if (ctx != nullptr && ctx->state.lock != nullptr) {
         (void) xSemaphoreGive(ctx->state.lock);
     }
 }
 
 static inline bool _socket_valid(Socket_t s) {
-    return (s != NULL) && (s != FREERTOS_INVALID_SOCKET);
+    return (s != nullptr) && (s != FREERTOS_INVALID_SOCKET);
 }
 
 static BaseType_t _apply_timeouts(Socket_t s, uint32_t rx_timeout_ms, uint32_t tx_timeout_ms) {
@@ -76,7 +76,7 @@ static void _uni_net_udp_server_task(void *arg) {
         // Create synchronization primitive
         ctx->state.lock = xSemaphoreCreateMutex();
 
-        if (ctx->state.lock != NULL) {
+        if (ctx->state.lock != nullptr) {
             // Create UDP socket
             ctx->state.socket = FreeRTOS_socket(FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP);
 
@@ -103,13 +103,13 @@ static void _uni_net_udp_server_task(void *arg) {
 
             if (!ctx->state.initialized) {
                 vSemaphoreDelete(ctx->state.lock);
-                ctx->state.lock = NULL;
+                ctx->state.lock = nullptr;
             }
         }
     }
 
     // If configured without event-driven receive, idle until stop is requested
-    if (!ctx->state.stop_requested && ctx->config.on_receive == NULL) {
+    if (!ctx->state.stop_requested && ctx->config.on_receive == nullptr) {
         while (!ctx->state.stop_requested) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
@@ -143,8 +143,8 @@ static void _uni_net_udp_server_task(void *arg) {
     }
 
     // Task exit
-    ctx->state.task = NULL;
-    vTaskDelete(NULL);
+    ctx->state.task = nullptr;
+    vTaskDelete(nullptr);
 }
 
 //
@@ -154,7 +154,7 @@ static void _uni_net_udp_server_task(void *arg) {
 bool uni_net_udp_server_start(uni_net_udp_server_context_t *ctx, const uni_net_udp_server_config_t *cfg) {
     bool result = false;
 
-    if (ctx != NULL) {
+    if (ctx != nullptr) {
         memset(ctx, 0, sizeof(*ctx));
 
         // Defaults
@@ -199,11 +199,11 @@ bool uni_net_udp_server_start(uni_net_udp_server_context_t *ctx, const uni_net_u
 }
 
 bool uni_net_udp_server_is_inited(const uni_net_udp_server_context_t *ctx) {
-    return (ctx != NULL) && (ctx->state.initialized);
+    return (ctx != nullptr) && (ctx->state.initialized);
 }
 
 bool uni_net_udp_server_stop(uni_net_udp_server_context_t *ctx) {
-    if (ctx == NULL) {
+    if (ctx == nullptr) {
         return false;
     }
 
@@ -219,7 +219,7 @@ bool uni_net_udp_server_stop(uni_net_udp_server_context_t *ctx) {
     _unlock(ctx);
 
     // Wait for task exit if it exists
-    while (ctx->state.task != NULL) {
+    while (ctx->state.task != nullptr) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -232,7 +232,7 @@ bool uni_net_udp_server_stop(uni_net_udp_server_context_t *ctx) {
     _unlock(ctx);
 
     // Delete lock
-    if (ctx->state.lock != NULL) {
+    if (ctx->state.lock != nullptr) {
         vSemaphoreDelete(ctx->state.lock);
     }
 
@@ -242,11 +242,11 @@ bool uni_net_udp_server_stop(uni_net_udp_server_context_t *ctx) {
 
 int32_t uni_net_udp_server_recvfrom(uni_net_udp_server_context_t *ctx, uint8_t *buf, size_t buf_size,
                                     uni_net_udp_endpoint_t *out_from, uint32_t timeout_ms) {
-    if (ctx == NULL || buf == NULL || buf_size == 0 || !uni_net_udp_server_is_inited(ctx)) {
+    if (ctx == nullptr || buf == nullptr || buf_size == 0 || !uni_net_udp_server_is_inited(ctx)) {
         return -pdFREERTOS_ERRNO_EINVAL;
     }
     // Cannot be used while event-driven receive task is active
-    if ((ctx->config.on_receive != NULL) && (ctx->state.task != NULL)) {
+    if ((ctx->config.on_receive != nullptr) && (ctx->state.task != nullptr)) {
         return -pdFREERTOS_ERRNO_EALREADY;
     }
 
@@ -269,7 +269,7 @@ int32_t uni_net_udp_server_recvfrom(uni_net_udp_server_context_t *ctx, uint8_t *
     (void) FreeRTOS_setsockopt(s, 0, FREERTOS_SO_RCVTIMEO, &orig_ticks, sizeof(orig_ticks));
     _unlock(ctx);
 
-    if (rv >= 0 && out_from != NULL && from_len >= sizeof(from)) {
+    if (rv >= 0 && out_from != nullptr && from_len >= sizeof(from)) {
         out_from->addr = from.sin_address.ulIP_IPv4;
         out_from->port = from.sin_port;
     }
@@ -279,7 +279,7 @@ int32_t uni_net_udp_server_recvfrom(uni_net_udp_server_context_t *ctx, uint8_t *
 
 int32_t uni_net_udp_server_sendto(uni_net_udp_server_context_t *ctx, const uint8_t *buf, size_t len,
                                   const uni_net_udp_endpoint_t *to) {
-    if (ctx == NULL || buf == NULL || len == 0 || to == NULL || !uni_net_udp_server_is_inited(ctx)) {
+    if (ctx == nullptr || buf == nullptr || len == 0 || to == nullptr || !uni_net_udp_server_is_inited(ctx)) {
         return -pdFREERTOS_ERRNO_EINVAL;
     }
 
@@ -290,7 +290,7 @@ int32_t uni_net_udp_server_sendto(uni_net_udp_server_context_t *ctx, const uint8
 
     // Avoid deadlock if called from server task: skip lock in that case
     TaskHandle_t self = xTaskGetCurrentTaskHandle();
-    bool take_lock = (ctx->state.task == NULL) || (self != ctx->state.task);
+    bool take_lock = (ctx->state.task == nullptr) || (self != ctx->state.task);
     if (take_lock) {
         _lock(ctx);
     }
@@ -309,7 +309,7 @@ int32_t uni_net_udp_server_sendto(uni_net_udp_server_context_t *ctx, const uint8
 
 bool uni_net_udp_server_set_timeouts(uni_net_udp_server_context_t *ctx, uint32_t rx_timeout_ms,
                                      uint32_t tx_timeout_ms) {
-    if (ctx == NULL || !uni_net_udp_server_is_inited(ctx)) {
+    if (ctx == nullptr || !uni_net_udp_server_is_inited(ctx)) {
         return false;
     }
     _lock(ctx);
@@ -324,13 +324,13 @@ bool uni_net_udp_server_set_timeouts(uni_net_udp_server_context_t *ctx, uint32_t
 
 bool uni_net_udp_server_get_timeouts(const uni_net_udp_server_context_t *ctx, uint32_t *rx_timeout_ms,
                                      uint32_t *tx_timeout_ms) {
-    if (ctx == NULL) {
+    if (ctx == nullptr) {
         return false;
     }
-    if (rx_timeout_ms != NULL) {
+    if (rx_timeout_ms != nullptr) {
         *rx_timeout_ms = ctx->config.rx_timeout_ms;
     }
-    if (tx_timeout_ms != NULL) {
+    if (tx_timeout_ms != nullptr) {
         *tx_timeout_ms = ctx->config.tx_timeout_ms;
     }
     return true;
