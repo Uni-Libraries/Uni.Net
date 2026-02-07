@@ -104,6 +104,9 @@ typedef struct {
     SemaphoreHandle_t    lock;
     TaskHandle_t         task;
     volatile bool        stop_requested;
+    uint64_t             rx_packets_total;
+    uint64_t             rx_drop_total;
+    uint32_t             rx_queue_packets;
 } uni_net_udp_server_state_t;
 
 typedef struct {
@@ -207,6 +210,16 @@ bool uni_net_udp_server_set_timeouts(uni_net_udp_server_context_t* ctx, uint32_t
  * Query current configured timeouts (values stored in the context config).
  */
 bool uni_net_udp_server_get_timeouts(const uni_net_udp_server_context_t* ctx, uint32_t* rx_timeout_ms, uint32_t* tx_timeout_ms);
+
+/**
+ * Get configured UDP receive queue depth for this socket in packets.
+ */
+uint32_t uni_net_udp_server_get_rx_queue_packets(const uni_net_udp_server_context_t* ctx);
+
+/**
+ * Get accumulated receive drop counter for this server context.
+ */
+uint64_t uni_net_udp_server_get_rx_drop_count(const uni_net_udp_server_context_t* ctx);
 
 /**
  * Best-effort control to disable UDP checksum if supported by the stack build. If not supported,
