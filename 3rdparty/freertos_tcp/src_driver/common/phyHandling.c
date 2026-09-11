@@ -1,5 +1,5 @@
 /*
- * FreeRTOS+TCP <DEVELOPMENT BRANCH>
+ * FreeRTOS+TCP
  * Copyright (C) 2022 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
@@ -156,6 +156,7 @@ static BaseType_t xHas_1F_PHYSPCS( uint32_t ulPhyID )
 
         case PHY_ID_DP83848I:
         case PHY_ID_DP83TC811S:
+        case PHY_ID_DP83822HF:
         case PHY_ID_TM4C129X:
         case PHY_ID_MV88E6071:
             /* Has no 0x1F register "PHY Special Control Status". */
@@ -174,6 +175,7 @@ static BaseType_t xHas_19_PHYCR( uint32_t ulPhyID )
     {
         case PHY_ID_LAN8742A:
         case PHY_ID_DP83848I:
+        case PHY_ID_DP83822HF:
         case PHY_ID_TM4C129X:
             xResult = pdTRUE;
             break;

@@ -1,5 +1,5 @@
 /*
- * FreeRTOS+TCP <DEVELOPMENT BRANCH>
+ * FreeRTOS+TCP
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -251,7 +251,7 @@ void vBitConfig_write_uc( BitConfig_t * pxConfig,
 
     if( pxConfig->xHasError == pdFALSE )
     {
-        if( pxConfig->uxIndex <= ( pxConfig->uxSize - uxNeeded ) )
+        if( ( pxConfig->uxIndex + uxNeeded ) <= pxConfig->uxSize )
         {
             uint8_t * pucDestination = &( pxConfig->ucContents[ pxConfig->uxIndex ] );
             ( void ) memcpy( pucDestination, pucData, uxNeeded );

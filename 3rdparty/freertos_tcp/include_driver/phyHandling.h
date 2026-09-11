@@ -1,5 +1,5 @@
 /*
- * FreeRTOS+TCP <DEVELOPMENT BRANCH>
+ * FreeRTOS+TCP
  * Copyright (C) 2022 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
  * SPDX-License-Identifier: MIT
@@ -113,6 +113,7 @@
 
     #define PHY_ID_DP83848I        0x20005C90
     #define PHY_ID_DP83TC811S      0x2000A250
+    #define PHY_ID_DP83822HF       0x2000A240
 
     #define PHY_ID_TM4C129X        0x2000A221
 
