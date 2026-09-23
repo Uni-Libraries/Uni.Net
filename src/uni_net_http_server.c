@@ -34,6 +34,7 @@
 #define UNI_NET_HTTP_SERVER_RX_WIN        (2U)
 #define UNI_NET_HTTP_SERVER_TX_WIN        (2U)
 #define UNI_NET_HTTP_SERVER_TASK_PRIORITY (2U)
+#define UNI_NET_HTTP_SERVER_CLOSE_TIME    (1000U)
 
 
 
@@ -118,6 +119,8 @@ const char * _uni_net_http_server_status_name(uni_net_http_status_e aCode ) {
             return "Done";
         case UNI_NET_HTTP_STATUS_PRECONDFAILED: /*  = 412, */
             return "Precondition Failed";
+        case UNI_NET_HTTP_STATUS_PAYLOADTOOLARGE: /* 413 */
+            return "Payload Too Large";
         case UNI_NET_HTTP_STATUS_INTERNALSERVERR: /*  = 500, */
             return "Internal Server Error";
         default:
@@ -176,7 +179,8 @@ static int32_t _uni_net_http_server_send_header(uni_net_http_server_context_t* c
                                     "Expires: 0\r\n");
 
     // Connection
-    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1, "Connection: keep-alive\r\n");
+    idx += uni_hal_io_stdio_snprintf(&ctx->state.buf_tx_hdr[idx], sizeof(ctx->state.buf_tx_hdr)-idx-1,
+                                    "Connection: %s\r\n", status == UNI_NET_HTTP_STATUS_PAYLOADTOOLARGE ? "close" : "keep-alive");
 
     // Content length
 #if defined(__linux__)
@@ -201,6 +205,8 @@ static void _uni_net_http_server_client_clear(uni_net_http_server_client_state_t
     client->content_type = NULL;
     client->rx_len = 0U;
     client->headers_done = false;
+    client->closing = false;
+    client->close_started = 0U;
 }
 
 
@@ -341,21 +347,36 @@ static int32_t _uni_net_http_server_cmd_get_next(uni_net_http_server_context_t* 
 static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t* ctx, uni_net_http_server_client_state_t* client) {
     int32_t result = 0U;
 
-    if (client->handler != NULL) {
+    if (client->handler != nullptr) {
+        bool buffered = client->handler->body_limit > 0U;
         size_t remaining = client->content_length - client->file_offset;
         if (remaining > 0U) {
             size_t to_recv = uni_common_math_min(remaining, (size_t)sizeof(client->buf_rx));
-            result = FreeRTOS_recv(client->socket, client->buf_rx, to_recv, 0);
+            char* destination = client->buf_rx + (buffered ? client->file_offset : 0U);
+            result = FreeRTOS_recv(client->socket, destination, to_recv, 0);
             if (result > 0) {
                 size_t deliver = uni_common_math_min((size_t)result, remaining);
-                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)client->buf_rx, deliver);
+                if (!buffered) {
+                    client->handler->function(client->handler->userdata, nullptr, 0U, (const uint8_t*)client->buf_rx, deliver);
+                }
                 client->file_offset += deliver;
             } else {
                 FreeRTOS_printf(("Receive error during POST body: %d\n", result));
             }
         }
-        else{
-            result = client->handler->function(client->handler->userdata, (uint8_t*)client->buf_tx, sizeof(client->buf_tx), NULL, 0U);
+        if (client->file_offset == client->content_length) {
+            size_t response_len = client->handler->function(client->handler->userdata,
+                (uint8_t*)client->buf_tx, sizeof(client->buf_tx),
+                buffered ? (const uint8_t*)client->buf_rx : nullptr,
+                buffered ? client->content_length : 0U);
+
+            if (buffered && response_len == SIZE_MAX) {
+                result = _uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
+                _uni_net_http_server_client_clear(client);
+                FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_WRITE);
+                return result;
+            }
+            result = (int32_t)response_len;
 
             client->content_length = FreeRTOS_tx_space(client->socket);
             client->content_length = uni_common_math_min(client->content_length, (uint32_t)result);
@@ -367,7 +388,7 @@ static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t*
                 }
             }
             _uni_net_http_server_client_clear(client);
-            FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);
+            FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_WRITE);
         }
     }
 
@@ -391,12 +412,36 @@ static int32_t _uni_net_http_server_cmd_post_start(uni_net_http_server_context_t
     }
 
     if (client->handler != NULL) {
+        bool buffered = client->handler->body_limit > 0U;
+        if (buffered && (client->content_length > client->handler->body_limit ||
+                         client->content_length > sizeof(client->buf_rx))) {
+            result = _uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_PAYLOADTOOLARGE);
+            if (result == -pdFREERTOS_ERRNO_ENOSPC) {
+                result = 0;
+            }
+            if (result < 0) {
+                return -1;
+            }
+            // Retain the header for short sends; the shared header buffer may
+            // be overwritten by another client before this socket is writable.
+            client->content_length = strlen(ctx->state.buf_tx_hdr);
+            memcpy(client->buf_tx, ctx->state.buf_tx_hdr, client->content_length);
+            client->file_offset = (uint32_t)result;
+            client->closing = true;
+            client->close_started = xTaskGetTickCount();
+            return result;
+        }
         // Initial body bytes (if any) arrived in the same segment as headers.
         if (data != NULL && data_len > 0U && client->content_length >= client->file_offset) {
             size_t remaining = client->content_length - client->file_offset;
             size_t chunk = uni_common_math_min(remaining, data_len);
             if (chunk > 0U) {
-                client->handler->function(client->handler->userdata, NULL, 0U, (const uint8_t*)data, chunk);
+                if (buffered) {
+                    // Headers and initial body share buf_rx, so they may overlap.
+                    memmove(client->buf_rx, data, chunk);
+                } else {
+                    client->handler->function(client->handler->userdata, nullptr, 0U, (const uint8_t*)data, chunk);
+                }
                 client->file_offset += chunk;
             }
         }
@@ -463,6 +508,32 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
     int32_t result = 0;
     if (!FreeRTOS_issocketconnected(client->socket)) {
         result = -1;
+    }
+    else if (client->closing) {
+        if ((TickType_t)(xTaskGetTickCount() - client->close_started) >= pdMS_TO_TICKS(UNI_NET_HTTP_SERVER_CLOSE_TIME)) {
+            return -1;
+        }
+        if (client->content_length > 0U) {
+            if (client->file_offset < client->content_length) {
+                result = FreeRTOS_send(client->socket, client->buf_tx + client->file_offset,
+                    client->content_length - client->file_offset, 0);
+                if (result == -pdFREERTOS_ERRNO_ENOSPC) {
+                    result = 0;
+                }
+                if (result < 0) {
+                    return -1;
+                }
+                client->file_offset += (uint32_t)result;
+            }
+            if (client->file_offset == client->content_length) {
+                if (FreeRTOS_shutdown(client->socket, FREERTOS_SHUT_RDWR) < 0) {
+                    return -1;
+                }
+                client->content_length = 0U;
+            }
+        }
+        // Discard incoming bytes while TCP completes the graceful shutdown.
+        (void)FreeRTOS_recv(client->socket, client->buf_rx, sizeof(client->buf_rx), 0);
     }
     else if (client->command_type == UNI_NET_HTTP_COMMAND_UNKNOWN) {
         // Accumulate request until headers are complete. Then parse and dispatch.
@@ -541,6 +612,7 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
             // Parse Content-Length (case-insensitive)
             uint32_t content_length = 0U;
             bool cl_found = false;
+            bool cl_invalid = false;
             // Move p to first header line after request line
             char *p = client->buf_rx;
             // find end of request line
@@ -572,19 +644,29 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
                         if (a != b) { match = false; break; }
                     }
                     if (match) {
+                        if (cl_found) {
+                            cl_invalid = true;
+                        }
                         size_t j = name_len;
                         while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
                         uint32_t val = 0U;
                         bool any = false;
                         while (p + j < e && (p[j] >= '0' && p[j] <= '9')) {
                             any = true;
-                            val = val * 10U + (uint32_t)(p[j] - '0');
+                            uint32_t digit = (uint32_t)(p[j] - '0');
+                            if (val > (UINT32_MAX - digit) / 10U) {
+                                cl_invalid = true;
+                                break;
+                            }
+                            val = val * 10U + digit;
                             j++;
                         }
-                        if (any) {
-                            content_length = val;
-                            cl_found = true;
+                        while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
+                        if (!any || p + j != e) {
+                            cl_invalid = true;
                         }
+                        content_length = val;
+                        cl_found = true;
                     }
                 }
                 p = e + 2;
@@ -595,7 +677,7 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
             const char *body_ptr = client->buf_rx + hdr_end;
 
             if (g_UNI_NET_http_cmd[cmd_idx].cmd_type == UNI_NET_HTTP_COMMAND_POST) {
-                if (!cl_found) {
+                if (!cl_found || cl_invalid) {
                     (void)_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
                     _uni_net_http_server_client_clear(client);
                     FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);

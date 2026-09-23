@@ -78,7 +78,14 @@ typedef struct {
     bool headers_done;
 
     /**
-     * A buffer to receive.
+     * Allow a queued rejection response to drain before destroying the socket.
+     */
+    bool closing;
+    TickType_t close_started;
+
+    /**
+     * Receive buffer. Buffered POST handlers retain the complete request body
+     * here until content_length bytes have arrived; file_offset tracks progress.
      */
     char buf_rx[ UNI_NET_HTTP_SERVER_RX_BUF ];
 

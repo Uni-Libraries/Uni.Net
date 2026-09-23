@@ -34,6 +34,7 @@ typedef enum {
     UNI_NET_HTTP_STATUS_NOTFOUND        = 404,
     UNI_NET_HTTP_STATUS_GONE            = 410,
     UNI_NET_HTTP_STATUS_PRECONDFAILED   = 412,
+    UNI_NET_HTTP_STATUS_PAYLOADTOOLARGE = 413,
     UNI_NET_HTTP_STATUS_INTERNALSERVERR = 500,
 } uni_net_http_status_e;
 
@@ -62,6 +63,12 @@ typedef struct {
     uni_net_http_command_type_e command;
     uni_net_http_handler_fn function;
     void* userdata;
+    /**
+     * Zero preserves streaming POST callbacks. Otherwise, buffer at most this
+     * many bytes per request (up to UNI_NET_HTTP_SERVER_RX_BUF) and call once
+     * with the complete body and output buffer. Return SIZE_MAX for HTTP 400.
+     */
+    size_t body_limit;
 } uni_net_http_handler_t;
 
 typedef struct
