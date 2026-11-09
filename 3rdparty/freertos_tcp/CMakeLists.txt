@@ -4,6 +4,10 @@
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/")
 
+if(NOT DEFINED UNI_NET_FREERTOS_TCP_CONFIG_EXTRA)
+    set(UNI_NET_FREERTOS_TCP_CONFIG_EXTRA "" CACHE FILEPATH "Header included at the end of FreeRTOSIPConfig.h, to add or to #undef and redefine settings")
+endif()
+
 #
 # Library
 #
@@ -67,6 +71,20 @@ target_sources(freertos_tcp PRIVATE
 if(UNI_HAL_TARGET_MCU STREQUAL "STM32H743")
     target_sources(freertos_tcp PRIVATE "src_driver/stm32h7_hal/NetworkInterface.c")
     set_source_files_properties("src_driver/stm32h7_hal/NetworkInterface.c" PROPERTIES COMPILE_FLAGS "-Wno-expansion-to-defined -Wno-unused-function -Wno-unused-parameter")
+elseif(UNI_HAL_TARGET_MCU STREQUAL "ZYNQ7000")
+    # Xilinx GEM (emacps) of the PS; the driver allocates the network buffers in uncached memory
+    set(_zynq_src
+        "src_driver/Zynq/NetworkInterface.c"
+        "src_driver/Zynq/uncached_memory.c"
+        "src_driver/Zynq/x_emacpsif_dma.c"
+        "src_driver/Zynq/x_emacpsif_hw.c"
+        "src_driver/Zynq/x_emacpsif_physpeed.c"
+    )
+    target_sources(freertos_tcp PRIVATE ${_zynq_src})
+    target_include_directories(freertos_tcp PRIVATE "src_driver" "src_driver/Zynq")
+    # upstream code: unused variables, and a #warning whose condition is inverted
+    # (it fires when ipconfigNIC_LINKSPEED100 is *not* set)
+    set_source_files_properties(${_zynq_src} PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-unused-parameter -Wno-cpp")
 elseif(UNI_HAL_TARGET_MCU STREQUAL "PC")
     if(LINUX)
         find_package(PCAP REQUIRED)
@@ -100,6 +118,8 @@ if(UNI_HAL_TARGET_MCU STREQUAL "PC")
     target_link_libraries(freertos_tcp PUBLIC pcap::pcap)
 elseif(UNI_HAL_TARGET_MCU STREQUAL "STM32H743")
     target_link_libraries(freertos_tcp PUBLIC st_stm32h7)
+elseif(UNI_HAL_TARGET_MCU STREQUAL "ZYNQ7000")
+    target_link_libraries(freertos_tcp PUBLIC xilinx_zynq7000)
 endif()
 
 
@@ -200,6 +220,38 @@ if(UNI_HAL_TARGET_MCU STREQUAL PC)
     )
 endif()
 
+
+if(UNI_HAL_TARGET_MCU STREQUAL "ZYNQ7000")
+    file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/freertos_tcp_config/FreeRTOSIPConfig.h"
+        "// Target Specific: Zynq-7000 (src_driver/Zynq, see its README)           \n"
+        "// the driver headers use XPAR_* without including it themselves          \n"
+        "#include <xparameters.h>                                                  \n"
+        "#define ipconfigPACKET_FILLER_SIZE       (2)                              \n"
+        "#define ipconfigNIC_LINKSPEED_AUTODETECT (1)                              \n"
+        "#define ipconfigNIC_N_TX_DESC            (128)                            \n"
+        "#define ipconfigNIC_N_RX_DESC            (64)                             \n"
+        "// more buffers than the RX descriptors hold                              \n"
+        "#undef  ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS                            \n"
+        "#define ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS (256)                      \n"
+        "// GEM reference clock dividers for the link speeds: the SDT BSP does not \n"
+        "// provide them, without them 100/10 Mbit/s links do not transmit.        \n"
+        "// For IO PLL = 1000 MHz: 125 MHz (8, 1), 25 MHz (8, 5), 2.5 MHz (8, 50).  \n"
+        "#define XPAR_PS7_ETHERNET_0_ENET_SLCR_1000MBPS_DIV0 (8)                   \n"
+        "#define XPAR_PS7_ETHERNET_0_ENET_SLCR_1000MBPS_DIV1 (1)                   \n"
+        "#define XPAR_PS7_ETHERNET_0_ENET_SLCR_100MBPS_DIV0  (8)                   \n"
+        "#define XPAR_PS7_ETHERNET_0_ENET_SLCR_100MBPS_DIV1  (5)                   \n"
+        "#define XPAR_PS7_ETHERNET_0_ENET_SLCR_10MBPS_DIV0   (8)                   \n"
+        "#define XPAR_PS7_ETHERNET_0_ENET_SLCR_10MBPS_DIV1   (50)                  \n"
+    )
+endif()
+
+if(UNI_NET_FREERTOS_TCP_CONFIG_EXTRA)
+    get_filename_component(UNI_NET_FREERTOS_TCP_CONFIG_EXTRA_ABS "${UNI_NET_FREERTOS_TCP_CONFIG_EXTRA}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/freertos_tcp_config/FreeRTOSIPConfig.h"
+        "// project specific settings                                              \n"
+        "#include \"${UNI_NET_FREERTOS_TCP_CONFIG_EXTRA_ABS}\"                    \n"
+    )
+endif()
 
 file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/freertos_tcp_config/FreeRTOSIPConfig.h"
         "#endif                                                                    \n"
