@@ -146,6 +146,16 @@ typedef struct {
      */
     size_t max_clients;
 
+    /**
+     * FreeRTOS priority of the server task, 0 = default (2)
+     */
+    UBaseType_t task_priority;
+
+    /**
+     * Stack of the server task in words, 0 = default (configMINIMAL_STACK_SIZE * 4)
+     */
+    uint32_t task_stack_words;
+
 } uni_net_http_server_config_t;
 
 

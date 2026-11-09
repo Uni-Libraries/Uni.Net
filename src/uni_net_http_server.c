@@ -34,6 +34,7 @@
 #define UNI_NET_HTTP_SERVER_RX_WIN        (2U)
 #define UNI_NET_HTTP_SERVER_TX_WIN        (2U)
 #define UNI_NET_HTTP_SERVER_TASK_PRIORITY (2U)
+#define UNI_NET_HTTP_SERVER_TASK_STACK    (configMINIMAL_STACK_SIZE * 4U)
 #define UNI_NET_HTTP_SERVER_CLOSE_TIME    (1000U)
 
 
@@ -819,7 +820,9 @@ bool uni_net_http_server_init(uni_net_http_server_context_t* ctx ) {
     bool result = false;
 
     if (ctx != nullptr && !uni_net_http_server_is_inited(ctx)) {
-        result = xTaskCreate(_uni_net_http_thread, "UNI_NET_HTTP_SERVER", configMINIMAL_STACK_SIZE * 4, ctx, UNI_NET_HTTP_SERVER_TASK_PRIORITY,
+        UBaseType_t priority = ctx->config.task_priority != 0U ? ctx->config.task_priority : UNI_NET_HTTP_SERVER_TASK_PRIORITY;
+        uint32_t stack_words = ctx->config.task_stack_words != 0U ? ctx->config.task_stack_words : UNI_NET_HTTP_SERVER_TASK_STACK;
+        result = xTaskCreate(_uni_net_http_thread, "UNI_NET_HTTP_SERVER", stack_words, ctx, priority,
                              &ctx->state.handle) == pdTRUE;
         ctx->state.initialized = result;
     }
