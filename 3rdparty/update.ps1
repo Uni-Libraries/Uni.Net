@@ -28,6 +28,11 @@ function Get-FreeRTOS-TCP(){
     New-Item    -Path "./freertos_tcp/src_driver/linux/"                           -ItemType Directory -ErrorAction SilentlyContinue
     Copy-Item   -Path "./~temp/FreeRTOS-Plus-TCP-main/source/portable/NetworkInterface/linux/*.c" -Destination "./freertos_tcp/src_driver/linux" -Recurse
 
+    Remove-Item -Path "./freertos_tcp/src_driver/Zynq"                            -Recurse -ErrorAction SilentlyContinue
+    New-Item    -Path "./freertos_tcp/src_driver/Zynq/"                           -ItemType Directory
+    Copy-Item   -Path "./~temp/FreeRTOS-Plus-TCP-main/source/portable/NetworkInterface/Zynq/*.c" -Destination "./freertos_tcp/src_driver/Zynq" -Recurse
+    Copy-Item   -Path "./~temp/FreeRTOS-Plus-TCP-main/source/portable/NetworkInterface/Zynq/*.h" -Destination "./freertos_tcp/src_driver/Zynq" -Recurse
+
     New-Item    -Path "./freertos_tcp/src_driver/stm32h7_hal/"                           -ItemType Directory -ErrorAction SilentlyContinue
     Remove-Item -Path "./freertos_tcp/src_driver/stm32h7_hal/NetworkInterface.c"         -ErrorAction SilentlyContinue
     Copy-Item   -Path "./~temp/FreeRTOS-Plus-TCP-main/source/portable/NetworkInterface/STM32/NetworkInterface.c" -Destination "./freertos_tcp/src_driver/stm32h7_hal/NetworkInterface.c" -Recurse
