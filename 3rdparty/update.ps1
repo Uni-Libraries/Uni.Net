@@ -55,6 +55,18 @@ function Get-FreeRTOS-TCP(){
 
 
 
+# Local changes on top of upstream: an update overwrites the files, the patches put the changes back
+function Add-Local-Patches(){
+    foreach ($patch in Get-ChildItem -Path "./patches/*.patch") {
+        git -C .. apply "3rdparty/patches/$($patch.Name)"
+        if ($LASTEXITCODE -ne 0) {
+            throw "patch $($patch.Name) does not apply, update it"
+        }
+    }
+}
+
+
+
 #
 # Pipeline
 #
@@ -65,5 +77,6 @@ Remove-Item -Path "./~temp/" -Force -Recurse -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path "./~temp/" -ErrorAction SilentlyContinue
 
 Get-FreeRTOS-TCP
+Add-Local-Patches
 
 Pop-Location

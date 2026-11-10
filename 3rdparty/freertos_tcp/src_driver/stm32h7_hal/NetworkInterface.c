@@ -71,6 +71,9 @@
     #error "Unknown STM32 Family for NetworkInterface"
 #endif /* if defined( STM32F4 ) */
 
+/* Uni.HAL includes */
+int uni_hal_io_stdio_snprintf(char *buffer, size_t buffer_size, const char* format, ...) __attribute__((format(printf, 3, 4)));
+
 /*---------------------------------------------------------------------------*/
 /*===========================================================================*/
 /*                                Config                                     */
@@ -99,7 +102,7 @@
 #define niEMAC_TX_MUTEX_NAME              "EMAC_TxMutex"
 #define niEMAC_TX_DESC_SEM_NAME           "EMAC_TxDescSem"
 
-#define niEMAC_AUTO_NEGOTIATION           ipconfigENABLE
+#define niEMAC_AUTO_NEGOTIATION           ipconfigDISABLE
 #define niEMAC_USE_100MB                  ( ipconfigENABLE && ipconfigIS_DISABLED( niEMAC_AUTO_NEGOTIATION ) )
 #define niEMAC_USE_FULL_DUPLEX            ( ipconfigENABLE && ipconfigIS_DISABLED( niEMAC_AUTO_NEGOTIATION ) )
 #define niEMAC_AUTO_CROSS                 ( ipconfigENABLE && ipconfigIS_ENABLED( niEMAC_AUTO_NEGOTIATION ) )
@@ -1103,7 +1106,7 @@ static void prvInitMacAddresses( ETH_HandleTypeDef * pxEthHandle,
     xFilterConfig.SrcAddrFiltering = DISABLE;
     xFilterConfig.SrcAddrInverseFiltering = DISABLE;
     xFilterConfig.ControlPacketsFilter = ETH_CTRLPACKETS_BLOCK_ALL;
-    xFilterConfig.BroadcastFilter = ENABLE;
+    xFilterConfig.BroadcastFilter = DISABLE;
     xFilterConfig.PassAllMulticast = DISABLE;
     xFilterConfig.DestAddrInverseFiltering = DISABLE;
     xFilterConfig.HashMulticast = ENABLE;
@@ -2000,7 +2003,7 @@ NetworkInterface_t * pxSTM32_FillInterfaceDescriptor( BaseType_t xEMACIndex,
 {
     static char pcName[ 17 ];
 
-    ( void ) snprintf( pcName, sizeof( pcName ), "eth%u", ( unsigned ) xEMACIndex );
+    uni_hal_io_stdio_snprintf(pcName, sizeof( pcName ), "eth%u", ( unsigned ) xEMACIndex );
 
     ( void ) memset( pxInterface, '\0', sizeof( *pxInterface ) );
     pxInterface->pcName = pcName;
