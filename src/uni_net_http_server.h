@@ -28,6 +28,7 @@
 
 #define UNI_NET_HTTP_SERVER_RX_BUF        (2U * ipconfigTCP_MSS)
 #define UNI_NET_HTTP_SERVER_TX_BUF        (6U * ipconfigTCP_MSS)
+#define UNI_NET_HTTP_SERVER_HDR_BUF       (ipconfigTCP_MSS)
 
 
 typedef struct {
@@ -126,7 +127,7 @@ typedef struct
     /**
      * A buffer to send.
      */
-    char buf_tx_hdr[ ipconfigTCP_MSS ];
+    char buf_tx_hdr[ UNI_NET_HTTP_SERVER_HDR_BUF ];
 } uni_net_http_server_state_t;
 
 

@@ -196,6 +196,13 @@ static int32_t _uni_net_http_server_send_header(uni_net_http_server_context_t* c
     return result;
 }
 
+/* room for a handler reply: the header goes into the same socket buffer first, a reply cut to the
+   space left would be shorter than its Content-Length */
+static uint32_t _uni_net_http_server_body_space(uni_net_http_server_client_state_t* client) {
+    BaseType_t space = FreeRTOS_tx_space(client->socket);
+    return space > (BaseType_t)UNI_NET_HTTP_SERVER_HDR_BUF ? (uint32_t)space - UNI_NET_HTTP_SERVER_HDR_BUF : 0U;
+}
+
 static void _uni_net_http_server_client_clear(uni_net_http_server_client_state_t* client) {
     client->command_type = UNI_NET_HTTP_COMMAND_UNKNOWN;
     client->file = NULL;
@@ -263,7 +270,7 @@ static int32_t _uni_net_http_server_cmd_get_sendresponse(uni_net_http_server_con
         result = client->handler->function(client->handler->userdata, (uint8_t*)client->buf_tx, sizeof(client->buf_tx), (const uint8_t*)client->buf_rx, sizeof(client->buf_rx));
 
         // calculate space
-        client->content_length = FreeRTOS_tx_space(client->socket);
+        client->content_length = _uni_net_http_server_body_space(client);
         client->content_length = uni_common_math_min(client->content_length, (uint32_t)result);
 
         // send response
@@ -379,7 +386,7 @@ static int32_t _uni_net_http_server_cmd_post_next(uni_net_http_server_context_t*
             }
             result = (int32_t)response_len;
 
-            client->content_length = FreeRTOS_tx_space(client->socket);
+            client->content_length = _uni_net_http_server_body_space(client);
             client->content_length = uni_common_math_min(client->content_length, (uint32_t)result);
             client->content_type = "text/plain";
 
@@ -781,7 +788,7 @@ bool _uni_net_http_server_init(uni_net_http_server_context_t* ctx) {
         FreeRTOS_setsockopt(ctx->state.socket, 0, FREERTOS_SO_SNDTIMEO, (void *) &xNoTimeout, sizeof(xNoTimeout));
 
         WinProperties_t xWinProps = {
-            .lTxBufSize = UNI_NET_HTTP_SERVER_TX_BUF,
+            .lTxBufSize = UNI_NET_HTTP_SERVER_TX_BUF + UNI_NET_HTTP_SERVER_HDR_BUF,
             .lTxWinSize = UNI_NET_HTTP_SERVER_TX_WIN,
             .lRxBufSize = UNI_NET_HTTP_SERVER_RX_BUF,
             .lRxWinSize = UNI_NET_HTTP_SERVER_RX_WIN,
