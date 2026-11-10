@@ -203,6 +203,24 @@ static uint32_t _uni_net_http_server_body_space(uni_net_http_server_client_state
     return space > (BaseType_t)UNI_NET_HTTP_SERVER_HDR_BUF ? (uint32_t)space - UNI_NET_HTTP_SERVER_HDR_BUF : 0U;
 }
 
+/* the header line [line, end) has the given name, case-insensitive (name includes the ':') */
+static bool _uni_net_http_server_header_is(const char* line, const char* end, const char* name) {
+    size_t name_len = strlen(name);
+    if ((size_t)(end - line) < name_len) {
+        return false;
+    }
+    for (size_t i = 0; i < name_len; ++i) {
+        char a = line[i];
+        char b = name[i];
+        if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+        if (b >= 'A' && b <= 'Z') b = (char)(b + 32);
+        if (a != b) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void _uni_net_http_server_client_clear(uni_net_http_server_client_state_t* client) {
     client->command_type = UNI_NET_HTTP_COMMAND_UNKNOWN;
     client->file = NULL;
@@ -621,6 +639,7 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
             uint32_t content_length = 0U;
             bool cl_found = false;
             bool cl_invalid = false;
+            bool te_found = false;
             // Move p to first header line after request line
             char *p = client->buf_rx;
             // find end of request line
@@ -642,40 +661,33 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
 
                 const char *name = "Content-Length:";
                 size_t name_len = strlen(name);
-                if ((size_t)(e - p) >= name_len) {
-                    bool match = true;
-                    for (size_t i = 0; i < name_len; ++i) {
-                        char a = p[i];
-                        char b = name[i];
-                        if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
-                        if (b >= 'A' && b <= 'Z') b = (char)(b + 32);
-                        if (a != b) { match = false; break; }
+                if (_uni_net_http_server_header_is(p, e, "Transfer-Encoding:")) {
+                    te_found = true;
+                }
+                if (_uni_net_http_server_header_is(p, e, name)) {
+                    if (cl_found) {
+                        cl_invalid = true;
                     }
-                    if (match) {
-                        if (cl_found) {
+                    size_t j = name_len;
+                    while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
+                    uint32_t val = 0U;
+                    bool any = false;
+                    while (p + j < e && (p[j] >= '0' && p[j] <= '9')) {
+                        any = true;
+                        uint32_t digit = (uint32_t)(p[j] - '0');
+                        if (val > (UINT32_MAX - digit) / 10U) {
                             cl_invalid = true;
+                            break;
                         }
-                        size_t j = name_len;
-                        while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
-                        uint32_t val = 0U;
-                        bool any = false;
-                        while (p + j < e && (p[j] >= '0' && p[j] <= '9')) {
-                            any = true;
-                            uint32_t digit = (uint32_t)(p[j] - '0');
-                            if (val > (UINT32_MAX - digit) / 10U) {
-                                cl_invalid = true;
-                                break;
-                            }
-                            val = val * 10U + digit;
-                            j++;
-                        }
-                        while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
-                        if (!any || p + j != e) {
-                            cl_invalid = true;
-                        }
-                        content_length = val;
-                        cl_found = true;
+                        val = val * 10U + digit;
+                        j++;
                     }
+                    while (p + j < e && (p[j] == ' ' || p[j] == '\t')) j++;
+                    if (!any || p + j != e) {
+                        cl_invalid = true;
+                    }
+                    content_length = val;
+                    cl_found = true;
                 }
                 p = e + 2;
             }
@@ -685,7 +697,9 @@ static int32_t _uni_net_http_server_client_work(uni_net_http_server_context_t* c
             const char *body_ptr = client->buf_rx + hdr_end;
 
             if (g_UNI_NET_http_cmd[cmd_idx].cmd_type == UNI_NET_HTTP_COMMAND_POST) {
-                if (!cl_found || cl_invalid) {
+                // no Content-Length and no Transfer-Encoding: the body is empty (RFC 9112, 6.3);
+                // chunked bodies are not supported
+                if (cl_invalid || te_found) {
                     (void)_uni_net_http_server_send_header(ctx, client, UNI_NET_HTTP_STATUS_BADREQUEST);
                     _uni_net_http_server_client_clear(client);
                     FreeRTOS_FD_CLR(client->socket, ctx->state.socket_set, eSELECT_READ | eSELECT_WRITE);
