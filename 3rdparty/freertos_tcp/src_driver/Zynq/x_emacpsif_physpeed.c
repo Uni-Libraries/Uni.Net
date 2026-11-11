@@ -680,3 +680,27 @@ unsigned Phy_Setup( XEmacPs * xemacpsp )
     FreeRTOS_printf( ( "link speed: %d\n", link_speed ) );
     return link_speed;
 }
+
+/* Uni.Net: the link came back, maybe at another speed (the partner was switched over): set the GEM
+ * clock and speed to what the PHY negotiated (specific status register, as get_IEEE_phy_speed() reads
+ * it). Phy_Setup() is not for this: it resets the PHY and waits for the negotiation without a limit. */
+unsigned Phy_Match_Link_Speed( XEmacPs * xemacpsp )
+{
+    u16 status;
+    unsigned speed;
+
+    XEmacPs_PhyRead( xemacpsp, phy_detected[ get_xEMACIndex( xemacpsp ) ], IEEE_SPECIFIC_STATUS_REG, &status );
+    speed = ( ( status >> 14 ) & 3 ) == 2 ? 1000 : ( ( ( status >> 14 ) & 3 ) == 1 ? 100 : 10 );
+
+    if( speed != link_speed )
+    {
+        SetUpSLCRDivisors( xemacpsp->Config.BaseAddress, speed );
+        XEmacPs_SetOperatingSpeed( xemacpsp, speed );
+        /* Setting the operating speed of the MAC needs a delay. */
+        vTaskDelay( pdMS_TO_TICKS( 25UL ) );
+        link_speed = speed;
+        FreeRTOS_printf( ( "link speed now: %d\n", link_speed ) );
+    }
+
+    return speed;
+}

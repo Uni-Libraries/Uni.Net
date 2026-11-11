@@ -143,6 +143,7 @@
                                         struct xNETWORK_BUFFER * pxBuffer,
                                         int iReleaseAfterSend );
     extern unsigned Phy_Setup( XEmacPs * xemacpsp );
+    extern unsigned Phy_Match_Link_Speed( XEmacPs * xemacpsp );
     extern void setup_isr( xemacpsif_s * xemacpsif );
     extern XStatus init_dma( xemacpsif_s * xemacpsif );
     extern void start_emacps( xemacpsif_s * xemacpsif );

@@ -270,10 +270,23 @@ XStatus emacps_send_message( xemacpsif_s * xemacpsif,
             break;
         }
 
-        if( xSemaphoreTake( xTXDescriptorSemaphores[ xEMACIndex ], xBlockTimeTicks ) != pdPASS )
+        /* Uni.Net: the caller holds tx_mutex, and emacps_check_tx(), which frees the descriptors, needs
+         * it too: waiting with the mutex taken made the TX completion give up and lose its event, and the
+         * transmitter stalled for good once the link was slower than the CPU (100 Mbit/s). Wait for a
+         * descriptor without the mutex: only this function moves txHead, emacps_check_tx() the tail. */
+        if( xSemaphoreTake( xTXDescriptorSemaphores[ xEMACIndex ], 0U ) != pdPASS )
         {
-            FreeRTOS_printf( ( "emacps_send_message: Time-out waiting for TX buffer\n" ) );
-            break;
+            BaseType_t xFree;
+
+            xSemaphoreGive( xemacpsif->tx_mutex );
+            xFree = xSemaphoreTake( xTXDescriptorSemaphores[ xEMACIndex ], xBlockTimeTicks );
+            xSemaphoreTake( xemacpsif->tx_mutex, portMAX_DELAY );
+
+            if( xFree != pdPASS )
+            {
+                FreeRTOS_printf( ( "emacps_send_message: Time-out waiting for TX buffer\n" ) );
+                break;
+            }
         }
 
         /* Pass the pointer (and its ownership) directly to DMA. */

@@ -1,0 +1,92 @@
+diff --git a/3rdparty/freertos_tcp/src_driver/Zynq/NetworkInterface.c b/3rdparty/freertos_tcp/src_driver/Zynq/NetworkInterface.c
+index fcf56c9..53c5558 100644
+--- a/3rdparty/freertos_tcp/src_driver/Zynq/NetworkInterface.c
++++ b/3rdparty/freertos_tcp/src_driver/Zynq/NetworkInterface.c
+@@ -694,6 +694,12 @@ static void prvEMACHandlerTask( void * pvParameters )
+             {
+                 ulPHYLinkStates[ xEMACIndex ] = xStatus;
+                 FreeRTOS_printf( ( "prvEMACHandlerTask: PHY LS now %d\n", ( ulPHYLinkStates[ xEMACIndex ] & niBMSR_LINK_STATUS ) != 0 ) );
++
++                if( ( xStatus & niBMSR_LINK_STATUS ) != 0 )
++                {
++                    /* Uni.Net: the MAC was set up for the speed of the first link only. */
++                    Phy_Match_Link_Speed( &( pxEMAC_PS->emacps ) );
++                }
+             }
+ 
+             vTaskSetTimeOutState( &xPhyTime );
+diff --git a/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif.h b/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif.h
+index 96733ec..a2aae8b 100644
+--- a/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif.h
++++ b/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif.h
+@@ -143,6 +143,7 @@
+                                         struct xNETWORK_BUFFER * pxBuffer,
+                                         int iReleaseAfterSend );
+     extern unsigned Phy_Setup( XEmacPs * xemacpsp );
++    extern unsigned Phy_Match_Link_Speed( XEmacPs * xemacpsp );
+     extern void setup_isr( xemacpsif_s * xemacpsif );
+     extern XStatus init_dma( xemacpsif_s * xemacpsif );
+     extern void start_emacps( xemacpsif_s * xemacpsif );
+diff --git a/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_dma.c b/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_dma.c
+index b3d3e3f..11988ee 100644
+--- a/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_dma.c
++++ b/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_dma.c
+@@ -270,10 +270,23 @@ XStatus emacps_send_message( xemacpsif_s * xemacpsif,
+             break;
+         }
+ 
+-        if( xSemaphoreTake( xTXDescriptorSemaphores[ xEMACIndex ], xBlockTimeTicks ) != pdPASS )
++        /* Uni.Net: the caller holds tx_mutex, and emacps_check_tx(), which frees the descriptors, needs
++         * it too: waiting with the mutex taken made the TX completion give up and lose its event, and the
++         * transmitter stalled for good once the link was slower than the CPU (100 Mbit/s). Wait for a
++         * descriptor without the mutex: only this function moves txHead, emacps_check_tx() the tail. */
++        if( xSemaphoreTake( xTXDescriptorSemaphores[ xEMACIndex ], 0U ) != pdPASS )
+         {
+-            FreeRTOS_printf( ( "emacps_send_message: Time-out waiting for TX buffer\n" ) );
+-            break;
++            BaseType_t xFree;
++
++            xSemaphoreGive( xemacpsif->tx_mutex );
++            xFree = xSemaphoreTake( xTXDescriptorSemaphores[ xEMACIndex ], xBlockTimeTicks );
++            xSemaphoreTake( xemacpsif->tx_mutex, portMAX_DELAY );
++
++            if( xFree != pdPASS )
++            {
++                FreeRTOS_printf( ( "emacps_send_message: Time-out waiting for TX buffer\n" ) );
++                break;
++            }
+         }
+ 
+         /* Pass the pointer (and its ownership) directly to DMA. */
+diff --git a/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_physpeed.c b/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_physpeed.c
+index ac9dcfc..ad7d115 100644
+--- a/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_physpeed.c
++++ b/3rdparty/freertos_tcp/src_driver/Zynq/x_emacpsif_physpeed.c
+@@ -680,3 +680,27 @@ unsigned Phy_Setup( XEmacPs * xemacpsp )
+     FreeRTOS_printf( ( "link speed: %d\n", link_speed ) );
+     return link_speed;
+ }
++
++/* Uni.Net: the link came back, maybe at another speed (the partner was switched over): set the GEM
++ * clock and speed to what the PHY negotiated (specific status register, as get_IEEE_phy_speed() reads
++ * it). Phy_Setup() is not for this: it resets the PHY and waits for the negotiation without a limit. */
++unsigned Phy_Match_Link_Speed( XEmacPs * xemacpsp )
++{
++    u16 status;
++    unsigned speed;
++
++    XEmacPs_PhyRead( xemacpsp, phy_detected[ get_xEMACIndex( xemacpsp ) ], IEEE_SPECIFIC_STATUS_REG, &status );
++    speed = ( ( status >> 14 ) & 3 ) == 2 ? 1000 : ( ( ( status >> 14 ) & 3 ) == 1 ? 100 : 10 );
++
++    if( speed != link_speed )
++    {
++        SetUpSLCRDivisors( xemacpsp->Config.BaseAddress, speed );
++        XEmacPs_SetOperatingSpeed( xemacpsp, speed );
++        /* Setting the operating speed of the MAC needs a delay. */
++        vTaskDelay( pdMS_TO_TICKS( 25UL ) );
++        link_speed = speed;
++        FreeRTOS_printf( ( "link speed now: %d\n", link_speed ) );
++    }
++
++    return speed;
++}

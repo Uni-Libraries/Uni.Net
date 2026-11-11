@@ -694,6 +694,12 @@ static void prvEMACHandlerTask( void * pvParameters )
             {
                 ulPHYLinkStates[ xEMACIndex ] = xStatus;
                 FreeRTOS_printf( ( "prvEMACHandlerTask: PHY LS now %d\n", ( ulPHYLinkStates[ xEMACIndex ] & niBMSR_LINK_STATUS ) != 0 ) );
+
+                if( ( xStatus & niBMSR_LINK_STATUS ) != 0 )
+                {
+                    /* Uni.Net: the MAC was set up for the speed of the first link only. */
+                    Phy_Match_Link_Speed( &( pxEMAC_PS->emacps ) );
+                }
             }
 
             vTaskSetTimeOutState( &xPhyTime );
